@@ -26,28 +26,32 @@ func main() {
 func command() *cli.Command {
 	return &cli.Command{
 		Name:  "clonetree",
-		Usage: "Independent repo snapshots, without copying all the data",
-		Description: `Clones the entire checkout, including .git, local changes, ignored files,
-and installed dependencies. Snapshots are created as <id>.clonetree/ in the
-repository root. Directories ending in .clonetree are excluded at every depth.
-Run from your repository root or any subdirectory. Each clone is a standalone
-checkout at the same revision; creating one does not create a branch.
+		Usage: "Copy-on-write snapshots of the current directory",
+		Description: `Clones the current working directory, including hidden files, ignored files,
+installed dependencies, and any .git or .sl metadata. Snapshots are created as
+<id>.clonetree/ here. Directories ending in .clonetree are excluded at every depth.
+All commands operate in the current directory; no repository is required.
+
+VCS metadata is copied as-is. Linked/shared stores and absolute metadata paths
+remain external references. Cloning a subdirectory does not create a new VCS
+checkout: Git or Sapling may still discover the original parent repository.
 
 Requires APFS on macOS or a reflink-capable Linux filesystem (XFS/Btrfs).
 Uses native cloning only: no full-copy fallback. Ext4 is unsupported.
 Symlinks retain their original targets, including absolute paths.
 Storage grows as either checkout changes; clones keep old data alive even if
 it is changed or deleted in the original.
-Stop writers while cloning: this is not an atomic repository-wide snapshot.`,
+Stop writers while cloning: this is not an atomic directory-wide snapshot.
+VCS operations in progress and lock files are copied without modification.`,
 		Commands: []*cli.Command{
 			{
 				Name:  "init",
-				Usage: "Add *.clonetree/ to the repository's .gitignore",
+				Usage: "Add *.clonetree/ to .gitignore in the current directory",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					if err := arguments(cmd, 0); err != nil {
 						return err
 					}
-					root, err := projectRoot()
+					root, err := os.Getwd()
 					if err != nil {
 						return err
 					}
@@ -73,7 +77,7 @@ filesystem accounting can affect it. An unavailable estimate is never shown as z
 					if err := arguments(cmd, 1); err != nil {
 						return err
 					}
-					root, err := projectRoot()
+					root, err := os.Getwd()
 					if err != nil {
 						return err
 					}
@@ -101,7 +105,7 @@ filesystem accounting can affect it. An unavailable estimate is never shown as z
 					if err := arguments(cmd, 1); err != nil {
 						return err
 					}
-					root, err := projectRoot()
+					root, err := os.Getwd()
 					if err != nil {
 						return err
 					}
@@ -115,7 +119,7 @@ filesystem accounting can affect it. An unavailable estimate is never shown as z
 			},
 			{
 				Name:  "info",
-				Usage: "List clonetrees and their storage usage",
+				Usage: "List clonetrees in the current directory and their storage usage",
 				Description: `SIZE is logical file content. PRIVATE is storage not shared with another clone
 or filesystem snapshot, where the filesystem exposes it (APFS). It excludes
 filesystem-wide metadata overhead. Shared blocks are not counted as private.
@@ -143,7 +147,7 @@ func showInfo(ctx context.Context, cmd *cli.Command) error {
 	if err := arguments(cmd, 0); err != nil {
 		return err
 	}
-	root, err := projectRoot()
+	root, err := os.Getwd()
 	if err != nil {
 		return err
 	}

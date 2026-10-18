@@ -1,28 +1,31 @@
 # Clonetree
 
-Independent repo snapshots using copy-on-write filesystem clones.
+Snapshot any directory using copy-on-write filesystem clones.
 
 ```sh
 go install github.com/sprisa/clonetree@latest
 
-# From your project's checkout:
+# From the directory you want to snapshot:
 clonetree init
 clonetree new my-feature  # creates ./my-feature.clonetree/
 clonetree info
 clonetree delete my-feature
 ```
 
-- `init` adds `*.clonetree/` to the repository's `.gitignore`.
-- `new <id>` creates `<id>.clonetree/` at the repo root, including `.git`, local changes, ignored files, and dependencies.
+- All commands operate in the current directory; no repository is required.
+- `init` creates or updates `.gitignore` here with `*.clonetree/`.
+- `new <id>` creates `<id>.clonetree/` here, including hidden files, ignored files, dependencies, and any `.git` or `.sl` metadata.
 - Directories ending in `.clonetree` are skipped at every depth, including the destination itself.
 - Reports clone time and estimated additional disk usage.
 - Added disk usage is a filesystem free-space estimate; other activity and delayed accounting can affect it.
-- `info` shows live logical sizes and private storage where available (APFS); `n/a` means unavailable.
+- `info` lists snapshots here with live logical sizes and private storage where available (APFS); `n/a` means unavailable.
 - Private storage excludes shared blocks and filesystem-wide metadata overhead.
 - Files share storage until either checkout changes. Old data stays allocated while any clone needs it; a clone's private usage can grow when the original changes or is deleted.
 - Uses native APFS clones on macOS and XFS/Btrfs reflinks on Linux; no full-copy fallback. Ext4 is unsupported.
-- Requires Go 1.24+ to install and a checkout with its own `.git` directory.
+- Requires Go 1.24+ to install.
 - Preserves permissions, modification times, and symlink targets. Stop writers while cloning; snapshots are not atomic.
+- VCS metadata is copied as-is, including lock files. External stores and absolute paths retain their references.
+- A cloned subdirectory is not automatically a new checkout; Git/Sapling can still discover the original parent repository.
 - Run `clonetree --help` or `clonetree <command> --help` for details.
 - Licensed under [MPL-2.0](LICENSE).
 

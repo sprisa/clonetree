@@ -18,30 +18,6 @@ var validID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 const treeSuffix = ".clonetree"
 const ignorePattern = "*" + treeSuffix + "/"
 
-func projectRoot() (string, error) {
-	dir, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	for {
-		git, err := os.Lstat(filepath.Join(dir, ".git"))
-		if err == nil {
-			if !git.IsDir() {
-				return "", errors.New("requires a checkout with its own .git directory, not a linked Git worktree")
-			}
-			return dir, nil
-		}
-		if !errors.Is(err, fs.ErrNotExist) {
-			return "", err
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", errors.New("no repository found; run inside a checkout with its own .git directory")
-		}
-		dir = parent
-	}
-}
-
 func initProject(root string) error {
 	path := filepath.Join(root, ".gitignore")
 	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
