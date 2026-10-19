@@ -66,9 +66,3 @@ findings, and collection-disabled memory measurements.
 
 See [testing](TESTING.md) for native XFS/Btrfs e2e tests in Ubuntu Docker or a VM,
 and APFS tests on a macOS host.
-
-## Releasing
-
-- Set the release version in `version.txt`; it is embedded in the CLI.
-- `task build` builds Go archives/checksums and npm packages. npm's JSON version is synchronized from `version.txt` before building or publishing.
-- `task release` builds the archives, publishes npm packages, and creates the GitHub release with the archives and checksums attached.
