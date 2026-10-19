@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"os"
 	"os/signal"
@@ -14,6 +15,9 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+//go:embed version.txt
+var embeddedVersion string
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -25,8 +29,9 @@ func main() {
 
 func command() *cli.Command {
 	return &cli.Command{
-		Name:  "clonetree",
-		Usage: "Copy-on-write snapshots of the current directory",
+		Name:    "clonetree",
+		Usage:   "Copy-on-write snapshots of the current directory",
+		Version: strings.TrimSpace(embeddedVersion),
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "dir",

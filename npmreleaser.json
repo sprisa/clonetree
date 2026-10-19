@@ -1,0 +1,37 @@
+{
+  "package.json": {
+    "name": "clonetree",
+    "version": "0.0.1",
+    "description": "Like git worktrees but doesn't use up your disk space. Uses clones instead of copy (aka copy-on-write). Fast worktrees for monorepos.",
+    "license": "MPL-2.0",
+    "author": "Gabriel Meola <banter@gabe.mx>",
+    "keywords": [
+      "apfs",
+      "btrfs",
+      "clone",
+      "git",
+      "git-worktree",
+      "worktree",
+      "reflink",
+      "xfs"
+    ],
+    "homepage": "https://github.com/sprisa/clonetree",
+    "bugs": {
+      "url": "https://github.com/sprisa/clonetree/issues"
+    },
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/sprisa/clonetree.git"
+    }
+  },
+  "bin": "clonetree",
+  "gobuild": "go build -trimpath -ldflags=\"-s -w\"",
+  "platforms": [
+    "linux/amd64",
+    "linux/arm64",
+    "darwin/amd64",
+    "darwin/arm64",
+    "windows/amd64",
+    "windows/arm64"
+  ]
+}

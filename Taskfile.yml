@@ -1,0 +1,58 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+vars:
+  OWNER: sprisa
+  IMAGE: clonetree
+  RELEASE_REPO: '{{.OWNER}}/{{.IMAGE}}'
+  VERSION:
+    sh: cat version.txt | tr -d '[:space:]'
+
+env:
+  GOWORK: 'off'
+  CLONETREE_VERSION: '{{.VERSION}}'
+
+tasks:
+  build:go:
+    desc: Build Go release archives and checksums
+    cmd: goreleaser release --clean --snapshot
+    generates:
+      - ./dist/**/*
+      - exclude: ./dist/**/npm/**
+
+  build:npm:
+    desc: Build npm package
+    cmds:
+      - node scripts/sync-npm-version.mjs
+      - npx @sprisa/npmreleaser@latest build
+
+  build:
+    desc: Build all
+    cmds:
+      - task: build:go
+      - task: build:npm
+
+  publish:npm:
+    desc: Publish npm package
+    cmds:
+      - node scripts/sync-npm-version.mjs
+      - npx @sprisa/npmreleaser@latest build --publish
+
+  release:
+    desc: Cut a GitHub Release
+    preconditions:
+      - sh: command -v gh >/dev/null
+        msg: "GitHub CLI not found. Install it: https://cli.github.com (brew install gh)"
+      - sh: gh auth status >/dev/null 2>&1
+        msg: "Not logged in to GitHub CLI. Run: gh auth login"
+    cmds:
+      - task: build:go
+      - task: publish:npm
+      - ./scripts/release-notes.sh v{{.VERSION}} {{.RELEASE_REPO}} > ./dist/RELEASE_NOTES.md
+      - >-
+        gh release create v{{.VERSION}}
+        --repo {{.RELEASE_REPO}}
+        --title "v{{.VERSION}}"
+        --notes-file ./dist/RELEASE_NOTES.md
+        ./dist/*.tar.gz ./dist/*.zip ./dist/checksums.txt
