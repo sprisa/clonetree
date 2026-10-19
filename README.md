@@ -40,10 +40,10 @@ destination must be on the same filesystem. No Git repository is required.
 brew install sprisa/tap/clonetree
 
 # npm
-npm install -g clonetree
+npx clonetree
 
 # Go 1.24+
-go install github.com/sprisa/clonetree@latest
+go run github.com/sprisa/clonetree@latest
 ```
 
 Or run without a global installation: `npx clonetree --help`.
