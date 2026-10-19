@@ -1,0 +1,31 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux:
+    name: Linux XFS and Btrfs e2e
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load native filesystem drivers
+        run: sudo modprobe -a loop xfs btrfs
+      - name: Build Ubuntu test container
+        run: docker build -f e2e/Dockerfile -t clonetree-e2e .
+      - name: Run native filesystem tests
+        run: docker run --rm --privileged clonetree-e2e
+
+  macos:
+    name: macOS APFS e2e
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Unit and race tests
+        run: GOWORK=off go test -race ./...
+      - name: Run native APFS tests
+        run: bash e2e/macos.sh

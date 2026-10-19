@@ -63,3 +63,6 @@ Timings and space estimates vary with filesystem state and other disk activity.
 
 See [performance notes](PERFORMANCE.md) for allocation benchmarks, escape-analysis
 findings, and collection-disabled memory measurements.
+
+See [testing](TESTING.md) for native XFS/Btrfs e2e tests in Ubuntu Docker or a VM,
+and APFS tests on a macOS host.
