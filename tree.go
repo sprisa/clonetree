@@ -8,15 +8,28 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 )
 
-var validID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
-
 const treeSuffix = ".clonetree"
 const ignorePattern = "*" + treeSuffix + "/"
+
+func validID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for i := range len(id) {
+		c := id[i]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' {
+			continue
+		}
+		if i == 0 || c != '-' && c != '_' {
+			return false
+		}
+	}
+	return true
+}
 
 func initProject(root string) error {
 	path := filepath.Join(root, ".gitignore")
@@ -46,16 +59,19 @@ type cloneResult struct {
 	Elapsed time.Duration
 }
 
-func newTree(ctx context.Context, root, id string) (result cloneResult, err error) {
-	if !validID.MatchString(id) {
+func newTree(ctx context.Context, root, directory, id string, report *progress) (result cloneResult, err error) {
+	if !validID(id) {
 		return result, errors.New("ID must start with a letter or digit and contain only letters, digits, hyphens or underscores")
 	}
-	before, beforeErr := freeSpace(root)
+	if err := os.MkdirAll(directory, 0755); err != nil {
+		return result, err
+	}
+	before, beforeErr := freeSpace(directory)
 	started := time.Now()
-	destination := filepath.Join(root, id+treeSuffix)
+	destination := filepath.Join(directory, id+treeSuffix)
 	if err = os.Mkdir(destination, 0700); err != nil {
 		if errors.Is(err, fs.ErrExist) {
-			return result, fmt.Errorf("%s%s already exists", id, treeSuffix)
+			return result, fmt.Errorf("%s already exists", destination)
 		}
 		return result, err
 	}
@@ -64,7 +80,14 @@ func newTree(ctx context.Context, root, id string) (result cloneResult, err erro
 			err = errors.Join(err, removeTree(destination))
 		}
 	}()
-	result.Logical, err = cloneDirectory(ctx, root, destination)
+	if report != nil {
+		total, err := countEntries(ctx, root)
+		if err != nil {
+			return result, fmt.Errorf("count entries: %w", err)
+		}
+		report.setTotal(total)
+	}
+	result.Logical, err = cloneDirectory(ctx, root, destination, report)
 	if err != nil {
 		return result, fmt.Errorf("clone failed (native copy-on-write support required): %w", err)
 	}
@@ -72,11 +95,11 @@ func newTree(ctx context.Context, root, id string) (result cloneResult, err erro
 	if err != nil {
 		return result, err
 	}
-	if err = preserveMetadata(destination, rootInfo); err != nil {
+	if err = preserveMetadata(destination, metadataFromInfo(rootInfo)); err != nil {
 		return result, err
 	}
 	result.Elapsed = time.Since(started)
-	after, afterErr := freeSpace(root)
+	after, afterErr := freeSpace(directory)
 	if beforeErr == nil && afterErr == nil && before >= after {
 		added := before - after
 		result.Added = &added
@@ -84,92 +107,140 @@ func newTree(ctx context.Context, root, id string) (result cloneResult, err erro
 	return result, nil
 }
 
-func cloneDirectory(ctx context.Context, source, destination string) (uint64, error) {
+func forEachEntry(ctx context.Context, source string, visit func(fs.DirEntry) error) error {
 	dir, err := os.Open(source)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	defer dir.Close()
-	var logical uint64
 	for {
 		if err := ctx.Err(); err != nil {
-			return 0, err
+			return err
 		}
 		// Filesystem order avoids sorting, and batches bound per-directory memory.
 		entries, err := dir.ReadDir(256)
 		if err != nil && err != io.EOF {
-			return 0, err
+			return err
 		}
 		for _, entry := range entries {
 			if err := ctx.Err(); err != nil {
-				return 0, err
+				return err
 			}
 			if entry.IsDir() && strings.HasSuffix(entry.Name(), treeSuffix) {
 				// Skip snapshots at any depth, including our own destination.
 				continue
 			}
-			src, dst := filepath.Join(source, entry.Name()), filepath.Join(destination, entry.Name())
-			size, err := cloneEntry(ctx, src, dst, entry)
-			if err != nil {
-				return 0, err
+			if err := visit(entry); err != nil {
+				return err
 			}
-			logical += size
 		}
 		if err == io.EOF {
-			return logical, nil
+			return nil
 		}
 	}
 }
 
-func cloneEntry(ctx context.Context, source, destination string, entry fs.DirEntry) (uint64, error) {
-	if entry.Type()&os.ModeSymlink != 0 {
+func countEntries(ctx context.Context, source string) (uint64, error) {
+	var total uint64
+	err := forEachEntry(ctx, source, func(entry fs.DirEntry) error {
+		total++
+		if entry.IsDir() {
+			children, err := countEntries(ctx, filepath.Join(source, entry.Name()))
+			if err != nil {
+				return err
+			}
+			total += children
+		}
+		return nil
+	})
+	return total, err
+}
+
+func cloneDirectory(ctx context.Context, source, destination string, report *progress) (uint64, error) {
+	var target *os.File
+	defer func() {
+		if target != nil {
+			target.Close()
+		}
+	}()
+	var logical uint64
+	err := forEachFile(ctx, source, false, func(sourceFD int, info fileMetadata) error {
+		if info.mode.IsDir() && strings.HasSuffix(info.name, treeSuffix) {
+			return nil
+		}
+		var size uint64
+		if info.mode.IsRegular() {
+			if target == nil {
+				var err error
+				target, err = os.Open(destination)
+				if err != nil {
+					return err
+				}
+			}
+			// Reuse directory handles and the existing name: no full paths per file.
+			if err := cloneFileAt(sourceFD, int(target.Fd()), info.name, info); err != nil {
+				return fmt.Errorf("%s: %w", filepath.Join(source, info.name), err)
+			}
+			size = uint64(info.size)
+		} else {
+			if info.mode.IsDir() && target != nil {
+				// Do not keep a destination handle at every level of a deep tree.
+				err := target.Close()
+				target = nil
+				if err != nil {
+					return err
+				}
+			}
+			src, dst := filepath.Join(source, info.name), filepath.Join(destination, info.name)
+			var err error
+			size, err = cloneEntry(ctx, src, dst, info, report)
+			if err != nil {
+				return err
+			}
+		}
+		logical += size
+		if report != nil {
+			if info.mode.IsDir() {
+				report.add(0) // Children have already reported their content.
+			} else {
+				report.add(size)
+			}
+		}
+		return nil
+	})
+	return logical, err
+}
+
+func cloneEntry(ctx context.Context, source, destination string, info fileMetadata, report *progress) (uint64, error) {
+	if info.mode&os.ModeSymlink != 0 {
 		target, err := os.Readlink(source)
 		if err != nil {
 			return 0, err
 		}
 		return 0, os.Symlink(target, destination)
 	}
-	info, err := entry.Info()
-	if err != nil {
+	if !info.mode.IsDir() {
+		return 0, fmt.Errorf("unsupported file type: %s", source)
+	}
+	if err := os.Mkdir(destination, 0700); err != nil {
 		return 0, err
 	}
-	var logical uint64
-	switch {
-	case info.IsDir():
-		if err := os.Mkdir(destination, 0700); err != nil {
-			return 0, err
-		}
-		logical, err = cloneDirectory(ctx, source, destination)
-		if err != nil {
-			return 0, err
-		}
-	case info.Mode().IsRegular():
-		if err := cloneFile(source, destination); err != nil {
-			return 0, fmt.Errorf("%s: %w", source, err)
-		}
-		logical = uint64(info.Size())
-		if clonePreservesMetadata {
-			// APFS already preserves times and permissions, except set-ID bits.
-			if info.Mode()&(os.ModeSetuid|os.ModeSetgid) != 0 {
-				return logical, os.Chmod(destination, info.Mode())
-			}
-			return logical, nil
-		}
-	default:
-		return 0, fmt.Errorf("unsupported file type: %s", source)
+	logical, err := cloneDirectory(ctx, source, destination, report)
+	if err != nil {
+		return 0, err
 	}
 	return logical, preserveMetadata(destination, info)
 }
 
-func preserveMetadata(path string, info fs.FileInfo) error {
-	if err := os.Chmod(path, info.Mode()); err != nil {
+func preserveMetadata(path string, info fileMetadata) error {
+	if err := os.Chmod(path, info.mode); err != nil {
 		return err
 	}
-	return os.Chtimes(path, info.ModTime(), info.ModTime())
+	return os.Chtimes(path, info.modified, info.modified)
 }
 
 func deleteTree(root, id string) error {
-	if !validID.MatchString(id) {
+	if !validID(id) {
 		return errors.New("invalid clonetree ID")
 	}
 	path := filepath.Join(root, id+treeSuffix)
@@ -194,7 +265,9 @@ func removeTree(path string) error {
 			if err != nil {
 				return err
 			}
-			return os.Chmod(path, info.Mode()|0700)
+			if info.Mode().Perm()&0700 != 0700 {
+				return os.Chmod(path, info.Mode()|0700)
+			}
 		}
 		return nil
 	}); err != nil {

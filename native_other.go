@@ -2,12 +2,30 @@
 
 package main
 
-import "errors"
+import (
+	"context"
+	"errors"
+	"os"
+)
 
-const clonePreservesMetadata = false
+func isTerminal(fd int) bool {
+	return false
+}
+
+func terminalWidth(fd int) int {
+	return 80
+}
 
 func cloneFile(source, destination string) error {
 	return errors.New("native cloning requires macOS/APFS or a reflink-capable Linux filesystem")
+}
+
+func cloneFileAt(sourceFD, destinationFD int, name string, info fileMetadata) error {
+	return errors.New("native cloning requires macOS/APFS or a reflink-capable Linux filesystem")
+}
+
+func readDirectoryMetadata(ctx context.Context, dir *os.File, wantPrivate bool, visit func(int, fileMetadata) error) error {
+	return readDirectoryStandard(ctx, dir, wantPrivate, visit)
 }
 
 func freeSpace(path string) (uint64, error) {
@@ -15,5 +33,9 @@ func freeSpace(path string) (uint64, error) {
 }
 
 func privateSize(path string) (uint64, bool) {
+	return 0, false
+}
+
+func privateSizeAt(fd int, path string) (uint64, bool) {
 	return 0, false
 }

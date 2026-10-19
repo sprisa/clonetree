@@ -22,7 +22,7 @@ func TestFailureRemovesPartialClone(t *testing.T) {
 	if err := unix.Mkfifo(fifo, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := newTree(context.Background(), root, "failed"); err == nil {
+	if _, err := newTree(context.Background(), root, root, "failed", nil); err == nil {
 		t.Fatal("accepted FIFO")
 	}
 	if _, err := os.Stat(filepath.Join(root, "failed.clonetree")); !os.IsNotExist(err) {

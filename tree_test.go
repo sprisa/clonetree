@@ -19,7 +19,6 @@ func fixture(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(root, ".git", "HEAD"), "ref: refs/heads/main\n")
 	return root
 }
 
@@ -73,6 +72,8 @@ func TestCommands(t *testing.T) {
 	root := fixture(t)
 	requireCloning(t, root)
 	t.Chdir(root)
+	write(t, filepath.Join(root, ".git", "HEAD"), "ref: refs/heads/main\n")
+	write(t, filepath.Join(root, ".sl", "store", "bookmarks"), "main\n")
 	write(t, filepath.Join(root, "local.txt"), "local changes")
 	write(t, filepath.Join(root, "node_modules", "dependency"), "installed")
 	write(t, filepath.Join(root, ".env"), "ignored")
@@ -90,7 +91,7 @@ func TestCommands(t *testing.T) {
 		t.Fatal("init created a clonetree directory")
 	}
 	write(t, filepath.Join(root, "README.md"), "keep docs")
-	write(t, filepath.Join(root, "existing.clonetree", "keep"), "existing clone")
+	write(t, filepath.Join(root, "clonetree", "existing.clonetree", "keep"), "existing clone")
 	write(t, filepath.Join(root, "packages", "nested.clonetree", "keep"), "nested clone")
 	write(t, filepath.Join(root, "packages", "local", "keep"), "ordinary directory")
 	write(t, filepath.Join(root, "settings.clonetree"), "ordinary file with suffix")
@@ -98,24 +99,29 @@ func TestCommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output, "→") || !strings.Contains(output, " in ") || !strings.Contains(output, "feature_1.clonetree") {
+	if !strings.Contains(output, "→") || !strings.Contains(output, " in ") || !strings.Contains(output, "clonetree/feature_1.clonetree") {
 		t.Fatalf("missing size/time summary: %s", output)
 	}
-	tree := filepath.Join(root, "feature_1.clonetree")
-	for _, name := range []string{"local.txt", ".git/HEAD", ".env", "node_modules/dependency", "README.md", ".gitignore", "packages/local/keep", "settings.clonetree"} {
+	if strings.ContainsAny(output, "\r\x1b") {
+		t.Fatalf("terminal progress leaked into redirected output: %q", output)
+	}
+	tree := filepath.Join(root, "clonetree", "feature_1.clonetree")
+	for _, name := range []string{"local.txt", ".git/HEAD", ".sl/store/bookmarks", ".env", "node_modules/dependency", "README.md", ".gitignore", "packages/local/keep", "settings.clonetree"} {
 		if read(t, filepath.Join(tree, name)) != read(t, filepath.Join(root, name)) {
 			t.Errorf("content mismatch: %s", name)
 		}
 	}
-	for _, name := range []string{"existing.clonetree", "feature_1.clonetree", "packages/nested.clonetree"} {
+	for _, name := range []string{"clonetree/existing.clonetree", "clonetree/feature_1.clonetree", "packages/nested.clonetree"} {
 		if _, err := os.Lstat(filepath.Join(tree, name)); !os.IsNotExist(err) {
 			t.Fatalf("clonetree was included: %s", name)
 		}
 	}
 	write(t, filepath.Join(tree, "local.txt"), "changed clone")
 	write(t, filepath.Join(tree, ".git", "HEAD"), "changed clone metadata")
+	write(t, filepath.Join(tree, ".sl", "store", "bookmarks"), "changed Sapling metadata")
 	if read(t, filepath.Join(root, "local.txt")) != "local changes" ||
-		read(t, filepath.Join(root, ".git", "HEAD")) != "ref: refs/heads/main\n" {
+		read(t, filepath.Join(root, ".git", "HEAD")) != "ref: refs/heads/main\n" ||
+		read(t, filepath.Join(root, ".sl", "store", "bookmarks")) != "main\n" {
 		t.Fatal("clone edit changed original")
 	}
 	if _, err := runCLI(t, "new", "feature_1"); err == nil {
@@ -131,15 +137,13 @@ func TestCommands(t *testing.T) {
 	if strings.Contains(output, "packages") || strings.Contains(output, "settings") {
 		t.Fatalf("info included a non-clonetree: %s", output)
 	}
-	// Commands also find the repository when run from a subdirectory.
-	t.Chdir(filepath.Join(root, "node_modules"))
 	if _, err := runCLI(t, "delete", "feature_1"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(tree); !os.IsNotExist(err) {
 		t.Fatal("deleted snapshot still exists")
 	}
-	if read(t, filepath.Join(root, "existing.clonetree", "keep")) != "existing clone" {
+	if read(t, filepath.Join(root, "clonetree", "existing.clonetree", "keep")) != "existing clone" {
 		t.Fatal("deleted another snapshot")
 	}
 }
@@ -182,7 +186,7 @@ func TestClonePreservesModesTimesAndSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(filepath.Dir(source), 0755) })
-	if _, err := newTree(context.Background(), root, "clone"); err != nil {
+	if _, err := newTree(context.Background(), root, root, "clone", nil); err != nil {
 		t.Fatal(err)
 	}
 	tree := filepath.Join(root, "clone.clonetree")
@@ -213,14 +217,13 @@ func TestCloneSpansDirectoryBatches(t *testing.T) {
 	if err := initProject(root); err != nil {
 		t.Fatal(err)
 	}
-	expected := uint64(len(read(t, filepath.Join(root, ".git", "HEAD"))) +
-		len(read(t, filepath.Join(root, ".gitignore"))))
+	expected := uint64(len(read(t, filepath.Join(root, ".gitignore"))))
 	for i := range 600 {
 		name := fmt.Sprintf("file-%03d", i)
 		write(t, filepath.Join(root, name), name)
 		expected += uint64(len(name))
 	}
-	result, err := newTree(context.Background(), root, "many-files")
+	result, err := newTree(context.Background(), root, root, "many-files", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +244,7 @@ func TestValidationAndSymlinkProtection(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"", ".", "..", "../escape", "a/b", "a\\b", "-option", "two words"} {
-		if _, err := newTree(context.Background(), root, id); err == nil {
+		if _, err := newTree(context.Background(), root, root, id, nil); err == nil {
 			t.Errorf("new accepted %q", id)
 		}
 		if err := deleteTree(root, id); err == nil {
@@ -252,14 +255,14 @@ func TestValidationAndSymlinkProtection(t *testing.T) {
 	if err := os.Symlink(filepath.Join(root, "outside"), filepath.Join(root, "linked.clonetree")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := newTree(context.Background(), root, "linked"); err == nil {
+	if _, err := newTree(context.Background(), root, root, "linked", nil); err == nil {
 		t.Fatal("new accepted symlink destination")
 	}
 	if err := deleteTree(root, "linked"); err == nil {
 		t.Fatal("delete accepted symlink destination")
 	}
 	write(t, filepath.Join(root, "file.clonetree"), "keep file")
-	if _, err := newTree(context.Background(), root, "file"); err == nil {
+	if _, err := newTree(context.Background(), root, root, "file", nil); err == nil {
 		t.Fatal("new accepted a regular-file destination")
 	}
 	if err := deleteTree(root, "file"); err == nil {
@@ -287,7 +290,7 @@ func TestCancellationCleansOnlyNewTree(t *testing.T) {
 	write(t, filepath.Join(root, "existing.clonetree", "keep"), "keep")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := newTree(ctx, root, "cancelled"); !errors.Is(err, context.Canceled) {
+	if _, err := newTree(ctx, root, root, "cancelled", nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation: %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(root, "cancelled.clonetree")); !os.IsNotExist(err) {
@@ -329,11 +332,86 @@ func TestInitPreservesIgnoreRulesAndRejectsLinks(t *testing.T) {
 	}
 }
 
-func TestRejectLinkedWorktree(t *testing.T) {
-	root := t.TempDir()
-	write(t, filepath.Join(root, ".git"), "gitdir: /elsewhere")
+func TestCommandsUseCurrentDirectory(t *testing.T) {
+	for _, kind := range []string{"ordinary-directory", "inside-repository"} {
+		t.Run(kind, func(t *testing.T) {
+			parent := fixture(t)
+			requireCloning(t, parent)
+			if kind == "inside-repository" {
+				write(t, filepath.Join(parent, ".git", "HEAD"), "parent metadata")
+				write(t, filepath.Join(parent, ".sl", "store", "bookmarks"), "parent metadata")
+			}
+			write(t, filepath.Join(parent, ".gitignore"), "# parent rules\n")
+			write(t, filepath.Join(parent, "clonetree", "same.clonetree", "keep"), "parent snapshot")
+			write(t, filepath.Join(parent, "clonetree", "parent-only.clonetree", "keep"), "parent only")
+			current := filepath.Join(parent, "child")
+			write(t, filepath.Join(current, "data"), "child data")
+			t.Chdir(current)
+			if _, err := runCLI(t, "init"); err != nil {
+				t.Fatal(err)
+			}
+			if read(t, filepath.Join(current, ".gitignore")) != "*.clonetree/\n" ||
+				read(t, filepath.Join(parent, ".gitignore")) != "# parent rules\n" {
+				t.Fatal("init did not stay in the current directory")
+			}
+			if _, err := runCLI(t, "new", "same"); err != nil {
+				t.Fatal(err)
+			}
+			tree := filepath.Join(current, "clonetree", "same.clonetree")
+			if read(t, filepath.Join(tree, "data")) != "child data" {
+				t.Fatal("did not clone current directory")
+			}
+			for _, name := range []string{".git", ".sl", "child"} {
+				if _, err := os.Lstat(filepath.Join(tree, name)); !os.IsNotExist(err) {
+					t.Fatalf("included data from parent directory: %s", name)
+				}
+			}
+			output, err := runCLI(t, "info")
+			if err != nil || !strings.Contains(output, "same") || strings.Contains(output, "parent-only") {
+				t.Fatalf("info did not stay in current directory: %s, %v", output, err)
+			}
+			if _, err := runCLI(t, "delete", "parent-only"); err == nil {
+				t.Fatal("delete found a snapshot in the parent directory")
+			}
+			if _, err := runCLI(t, "delete", "same"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Lstat(tree); !os.IsNotExist(err) {
+				t.Fatal("current snapshot was not deleted")
+			}
+			if read(t, filepath.Join(parent, "clonetree", "same.clonetree", "keep")) != "parent snapshot" ||
+				read(t, filepath.Join(parent, "clonetree", "parent-only.clonetree", "keep")) != "parent only" {
+				t.Fatal("changed snapshots outside the current directory")
+			}
+		})
+	}
+}
+
+func TestVCSReferencesAreCopiedVerbatim(t *testing.T) {
+	root := fixture(t)
+	requireCloning(t, root)
+	external := t.TempDir()
+	write(t, filepath.Join(root, ".git"), "gitdir: "+filepath.Join(external, "git-metadata")+"\n")
+	write(t, filepath.Join(root, ".sl", "sharedpath"), filepath.Join(external, "sapling-store")+"\n")
+	write(t, filepath.Join(external, "sapling-store", "keep"), "external data")
+	if err := os.Symlink(filepath.Join(external, "sapling-store"), filepath.Join(root, ".sl", "store")); err != nil {
+		t.Fatal(err)
+	}
 	t.Chdir(root)
-	if _, err := projectRoot(); err == nil {
-		t.Fatal("accepted linked worktree")
+	if _, err := runCLI(t, "new", "copy"); err != nil {
+		t.Fatal(err)
+	}
+	tree := filepath.Join(root, "clonetree", "copy.clonetree")
+	for _, name := range []string{".git", ".sl/sharedpath"} {
+		if read(t, filepath.Join(tree, name)) != read(t, filepath.Join(root, name)) {
+			t.Fatalf("rewrote VCS metadata: %s", name)
+		}
+	}
+	target, err := os.Readlink(filepath.Join(tree, ".sl", "store"))
+	if err != nil || target != filepath.Join(external, "sapling-store") {
+		t.Fatalf("external symlink: %q, %v", target, err)
+	}
+	if read(t, filepath.Join(external, "sapling-store", "keep")) != "external data" {
+		t.Fatal("changed external store")
 	}
 }

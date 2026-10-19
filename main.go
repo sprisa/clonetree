@@ -27,10 +27,24 @@ func command() *cli.Command {
 	return &cli.Command{
 		Name:  "clonetree",
 		Usage: "Copy-on-write snapshots of the current directory",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "dir",
+				Aliases: []string{"d"},
+				Value:   "clonetree",
+				Usage:   "Parent directory for snapshots used by new, info, and delete",
+			},
+			&cli.BoolFlag{
+				Name:  "no-progress",
+				Usage: "Disable live progress and its initial entry-counting pass",
+			},
+		},
 		Description: `Clones the current working directory, including hidden files, ignored files,
 installed dependencies, and any .git or .sl metadata. Snapshots are created as
-<id>.clonetree/ here. Directories ending in .clonetree are excluded at every depth.
-All commands operate in the current directory; no repository is required.
+clonetree/<id>.clonetree/ by default. Use --dir to choose a different parent
+directory (relative to the current directory, or absolute). The source is always
+the current directory; no repository is required. Directories ending in
+.clonetree are excluded at every depth.
 
 VCS metadata is copied as-is. Linked/shared stores and absolute metadata paths
 remain external references. Cloning a subdirectory does not create a new VCS
@@ -70,6 +84,10 @@ VCS operations in progress and lock files are copied without modification.`,
 or digit. Existing IDs are never overwritten. Permissions and modification times
 are preserved. Failed or cancelled clones are removed.
 
+Live progress is enabled when stderr is a terminal, unless --no-progress is set.
+It first counts entries, then shows percentage, entries/second, and estimated time
+remaining. Non-interactive and disabled runs skip the counting pass.
+
 The disk-saving summary compares logical file size with the change in filesystem
 free space. Added disk usage is an estimate: other disk activity and delayed
 filesystem accounting can affect it. An unavailable estimate is never shown as zero.`,
@@ -81,9 +99,16 @@ filesystem accounting can affect it. An unavailable estimate is never shown as z
 					if err != nil {
 						return err
 					}
+					directory, err := snapshotDirectory(cmd)
+					if err != nil {
+						return err
+					}
 					id := cmd.Args().First()
-					fmt.Fprintf(cmd.Root().Writer, "Cloning into %s%s…\n", id, treeSuffix)
-					result, err := newTree(ctx, root, id)
+					fmt.Fprintf(cmd.Root().Writer, "Cloning into %s…\n", filepath.Join(cmd.String("dir"), id+treeSuffix))
+					p := startProgress(cmd.Root().ErrWriter, "Counting entries", cmd.Bool("no-progress"))
+					defer p.stop()
+					result, err := newTree(ctx, root, directory, id, p)
+					p.stop()
 					if err != nil {
 						return err
 					}
@@ -93,7 +118,7 @@ filesystem accounting can affect it. An unavailable estimate is never shown as z
 					}
 					fmt.Fprintf(cmd.Root().Writer, "%s → %s in %s\n\n  cd %s\n",
 						bytesString(result.Logical), added, result.Elapsed.Round(time.Millisecond),
-						filepath.Join(root, id+treeSuffix))
+						filepath.Join(directory, id+treeSuffix))
 					return nil
 				},
 			},
@@ -105,21 +130,24 @@ filesystem accounting can affect it. An unavailable estimate is never shown as z
 					if err := arguments(cmd, 1); err != nil {
 						return err
 					}
-					root, err := os.Getwd()
+					directory, err := snapshotDirectory(cmd)
 					if err != nil {
 						return err
 					}
 					id := cmd.Args().First()
-					if err := deleteTree(root, id); err != nil {
+					p := startProgress(cmd.Root().ErrWriter, "Deleting "+id+treeSuffix, cmd.Bool("no-progress"))
+					defer p.stop()
+					if err := deleteTree(directory, id); err != nil {
 						return err
 					}
-					fmt.Fprintf(cmd.Root().Writer, "Deleted %s%s\n", id, treeSuffix)
+					p.stop()
+					fmt.Fprintf(cmd.Root().Writer, "Deleted %s\n", filepath.Join(cmd.String("dir"), id+treeSuffix))
 					return nil
 				},
 			},
 			{
 				Name:  "info",
-				Usage: "List clonetrees in the current directory and their storage usage",
+				Usage: "List snapshots in --dir and their storage usage",
 				Description: `SIZE is logical file content. PRIVATE is storage not shared with another clone
 or filesystem snapshot, where the filesystem exposes it (APFS). It excludes
 filesystem-wide metadata overhead. Shared blocks are not counted as private.
@@ -143,16 +171,26 @@ func arguments(cmd *cli.Command, count int) error {
 	return nil
 }
 
+func snapshotDirectory(cmd *cli.Command) (string, error) {
+	directory := cmd.String("dir")
+	if directory == "" {
+		return "", fmt.Errorf("--dir must not be empty")
+	}
+	return filepath.Abs(directory)
+}
+
 func showInfo(ctx context.Context, cmd *cli.Command) error {
 	if err := arguments(cmd, 0); err != nil {
 		return err
 	}
-	root, err := os.Getwd()
+	directory, err := snapshotDirectory(cmd)
 	if err != nil {
 		return err
 	}
-	entries, err := os.ReadDir(root)
-	if err != nil {
+	p := startProgress(cmd.Root().ErrWriter, "Measuring snapshots", cmd.Bool("no-progress"))
+	defer p.stop()
+	entries, err := os.ReadDir(directory)
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	w := tabwriter.NewWriter(cmd.Root().Writer, 0, 4, 2, ' ', 0)
@@ -161,7 +199,7 @@ func showInfo(ctx context.Context, cmd *cli.Command) error {
 		if !entry.IsDir() || !strings.HasSuffix(entry.Name(), treeSuffix) {
 			continue
 		}
-		size, err := treeSize(ctx, filepath.Join(root, entry.Name()))
+		size, err := treeSize(ctx, filepath.Join(directory, entry.Name()))
 		if err != nil {
 			return fmt.Errorf("size of %s: %w", entry.Name(), err)
 		}
@@ -171,6 +209,7 @@ func showInfo(ctx context.Context, cmd *cli.Command) error {
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\n", strings.TrimSuffix(entry.Name(), treeSuffix), bytesString(size.Logical), private)
 	}
+	p.stop()
 	if err := w.Flush(); err != nil {
 		return err
 	}

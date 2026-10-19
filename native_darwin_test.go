@@ -64,7 +64,7 @@ func TestInfoSizeGrowsWhenOriginalChanges(t *testing.T) {
 			if err := os.WriteFile(source, data, 0644); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := newTree(context.Background(), root, "snapshot"); err != nil {
+			if _, err := newTree(context.Background(), root, root, "snapshot", nil); err != nil {
 				t.Fatal(err)
 			}
 			tree := filepath.Join(root, "snapshot.clonetree")
