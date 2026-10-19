@@ -3,6 +3,11 @@
 Snapshot any directory using copy-on-write filesystem clones.
 
 ```sh
+# with brew (auto-updates)
+brew install sprisa/tap/clonetree
+# with npm (auto-updates)
+npx clonetree
+# with go (no auto-updates)
 go install github.com/sprisa/clonetree@latest
 
 # From the directory you want to snapshot:
@@ -10,14 +15,6 @@ clonetree init
 clonetree new my-feature  # creates ./clonetree/my-feature.clonetree/
 clonetree info
 clonetree delete my-feature
-
-# Choose a different snapshot parent directory:
-clonetree new --dir ../snapshots my-feature
-clonetree info --dir ../snapshots
-clonetree delete --dir ../snapshots my-feature
-
-# Explicitly disable live progress, including in a pseudo-terminal:
-clonetree new --no-progress my-feature
 ```
 
 - The source is always the current directory; no repository is required.

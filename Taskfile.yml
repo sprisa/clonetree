@@ -6,6 +6,7 @@ vars:
   OWNER: sprisa
   IMAGE: clonetree
   RELEASE_REPO: '{{.OWNER}}/{{.IMAGE}}'
+  HOMEBREW_TAP: '{{.ROOT_DIR}}/../../vendor/homebrew-tap'
   VERSION:
     sh: cat version.txt | tr -d '[:space:]'
 
@@ -39,6 +40,10 @@ tasks:
       - node scripts/sync-npm-version.mjs
       - npx @sprisa/npmreleaser@latest build --publish
 
+  update:homebrew:
+    desc: Update the local Homebrew formula using the published release checksums
+    cmd: node scripts/update-homebrew.mjs "{{.HOMEBREW_TAP}}" "{{.RELEASE_REPO}}"
+
   release:
     desc: Cut a GitHub Release
     preconditions:
@@ -56,3 +61,4 @@ tasks:
         --title "v{{.VERSION}}"
         --notes-file ./dist/RELEASE_NOTES.md
         ./dist/*.tar.gz ./dist/*.zip ./dist/checksums.txt
+      - task: update:homebrew
