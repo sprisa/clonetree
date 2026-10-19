@@ -25,7 +25,6 @@ tasks:
   build:npm:
     desc: Build npm package
     cmds:
-      - node scripts/sync-npm-version.mjs
       - npx @sprisa/npmreleaser@latest build
 
   build:
@@ -37,7 +36,6 @@ tasks:
   publish:npm:
     desc: Publish npm package
     cmds:
-      - node scripts/sync-npm-version.mjs
       - npx @sprisa/npmreleaser@latest build --publish
 
   update:homebrew:

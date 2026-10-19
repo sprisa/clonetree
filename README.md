@@ -1,46 +1,162 @@
-# Clonetree
+<div align="center">
+  <img src="docs/assets/clonetree.svg" alt="Clonetree: geometric canopies with fine tree branches and a new side branch" width="128" height="128">
+  <h1>clonetree</h1>
+  <p><strong>Clone your checkout. Share its storage.</strong></p>
+  <p>Keep local edits, installed dependencies, and build output.</p>
+  <p>
+    <a href="#quick-start"><strong>Quick start</strong></a> ·
+    <a href="#coming-from-git-worktrees"><strong>Git worktrees</strong></a> ·
+    <a href="#everyday-usage"><strong>Usage</strong></a> ·
+    <a href="#how-it-works"><strong>How it works</strong></a>
+  </p>
+  <p>
+    <a href="https://github.com/sprisa/clonetree/actions/workflows/test.yml"><img src="https://github.com/sprisa/clonetree/actions/workflows/test.yml/badge.svg" alt="Tests"></a>
+    <a href="https://www.npmjs.com/package/clonetree"><img src="https://img.shields.io/npm/v/clonetree?color=A7B7A0" alt="npm version"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MPL%202.0-blue" alt="License: MPL 2.0"></a>
+  </p>
+</div>
 
-Snapshot any directory using copy-on-write filesystem clones.
+**clonetree** creates a working copy of the current directory using filesystem
+clones. It provides a create/list/delete workflow similar to Git worktrees,
+starting from the files on disk rather than a commit.
+
+- **Clone local edits.** Uncommitted changes, untracked files, and ignored files
+  are included.
+- **Keep dependencies installed.** Existing dependency directories and build
+  output are included alongside source files.
+- **Share file storage.** Files are separate, but their existing data is not
+  copied again. More space is used as either copy changes.
+
+In our [APFS benchmark](#benchmark), a **39.2 GiB checkout** cloned in **55 seconds**
+on average, with **~88–93 MiB** of estimated additional disk usage.
+
+**Requires macOS with APFS, or Linux with reflink-enabled XFS/Btrfs.** Source and
+destination must be on the same filesystem. No Git repository is required.
+
+## Install
 
 ```sh
-# with brew (auto-updates)
+# Homebrew
 brew install sprisa/tap/clonetree
-# with npm (auto-updates)
-npx clonetree
-# with go (no auto-updates)
-go install github.com/sprisa/clonetree@latest
 
-# From the directory you want to snapshot:
-clonetree init
-clonetree new my-feature  # creates ./clonetree/my-feature.clonetree/
-clonetree info
-clonetree delete my-feature
+# npm
+npm install -g clonetree
+
+# Go 1.24+
+go install github.com/sprisa/clonetree@latest
 ```
 
-- The source is always the current directory; no repository is required.
-- `init` creates or updates `.gitignore` here with `*.clonetree/`.
-- `new <id>` creates `clonetree/<id>.clonetree/`, including hidden files, ignored files, dependencies, and any `.git` or `.sl` metadata.
-- `--dir` / `-d` changes the snapshot parent for `new`, `info`, and `delete`; relative paths are resolved from the current directory. Use `--dir .` to put snapshots here directly.
-- Directories ending in `.clonetree` are skipped at every depth, including the destination itself.
-- Reports clone time and estimated additional disk usage.
-- Live progress is enabled by default when stderr is a TTY; `--no-progress` explicitly disables it.
-- Interactive cloning counts entries first, then shows a percentage bar, entries/second, and estimated time remaining. Non-TTY and disabled runs skip that counting pass and keep output plain.
-- Added disk usage is a filesystem free-space estimate; other activity and delayed accounting can affect it.
-- `info` lists snapshots in the selected directory with live logical sizes and private storage where available (APFS); `n/a` means unavailable.
-- Private storage excludes shared blocks and filesystem-wide metadata overhead.
-- Files share storage until either checkout changes. Old data stays allocated while any clone needs it; a clone's private usage can grow when the original changes or is deleted.
-- Uses native APFS clones on macOS and XFS/Btrfs reflinks on Linux; no full-copy fallback. Ext4 is unsupported.
-- macOS reads metadata in native batches with reusable buffers; standard metadata reads handle unsupported filesystems and exceptional entries.
-- Requires Go 1.24+ to install.
-- Preserves permissions, modification times, and symlink targets. Stop writers while cloning; snapshots are not atomic.
-- VCS metadata is copied as-is, including lock files. External stores and absolute paths retain their references.
-- A cloned subdirectory is not automatically a new checkout; Git/Sapling can still discover the original parent repository.
-- Run `clonetree --help` or `clonetree <command> --help` for details.
-- Licensed under [MPL-2.0](LICENSE).
+Or run without a global installation: `npx clonetree --help`.
+
+## Quick start
+
+From the directory you want to clone:
+
+```sh
+clonetree init               # Add *.clonetree/ to this directory's .gitignore
+clonetree new my-feature     # Clone into ./clonetree/my-feature.clonetree/
+cd clonetree/my-feature.clonetree
+
+# Files, local edits, and installed dependencies are included.
+```
+
+`init` is a one-time convenience for ignoring snapshots. It doesn't create a
+repository or a snapshot; `new` does the cloning. Directories ending in
+`.clonetree` are skipped, so new snapshots don't contain your older ones.
+
+Back in the original directory, inspect or remove your workspace:
+
+```sh
+clonetree info
+clonetree delete my-feature  # Removes the workspace, including its local changes
+```
+
+## Coming from Git worktrees
+
+The equivalent commands:
+
+| What you want to do | Git worktree | clonetree |
+| --- | --- | --- |
+| Create a workspace | `git worktree add ../my-feature -b my-feature` | `clonetree new my-feature` |
+| List workspaces | `git worktree list` | `clonetree info` |
+| Remove a workspace | `git worktree remove ../my-feature` | `clonetree delete my-feature` |
+
+The important difference is **what you start with**:
+
+| | Git worktree | clonetree |
+| --- | --- | --- |
+| Starting point | A checked-out commit or branch | Your current directory, including local edits |
+| Dependencies and ignored files | Not populated from the original workspace | Included if present in the source |
+| Working-file storage | A separate working tree | Shared data blocks until files change |
+| Git relationship | Linked to the same repository | Repository metadata is cloned as-is |
+
+**Git worktrees already share Git objects.** Clonetree also shares the storage
+behind working files, so a large `node_modules/` or build directory can come along
+without another full copy of its contents.
+
+A clonetree ID names a directory, not a branch. In a regular Git checkout with its
+own `.git` directory, the clone gets its own Git metadata too: you can use the same
+branch independently, or create a new one after entering the clone:
+
+```sh
+git switch -c my-feature
+```
+
+Commits and refs in that clone aren't automatically synchronized with the source;
+share them through your usual Git remote. Clonetrees aren't registered in
+`git worktree list`. If your source is a linked worktree or uses external metadata,
+read the [repository metadata details](#repository-metadata) below.
+
+## Everyday usage
+
+### Choose a snapshot directory
+
+The source is always your current directory. `--dir` (or `-d`) changes the parent
+directory used by `new`, `info`, and `delete`:
+
+```sh
+clonetree --dir ../workspaces new experiment
+clonetree --dir ../workspaces info
+clonetree --dir ../workspaces delete experiment
+```
+
+This creates `../workspaces/experiment.clonetree/`. Relative paths are resolved
+from the current directory; use the same parent when listing or deleting. Use
+`--dir .` to create snapshots directly here instead of inside `./clonetree/`.
+
+### Inspect disk usage
+
+`new` reports clone time and estimated additional disk usage. `info` scans your
+snapshots and shows their logical size and private storage where available:
+
+| Column | Meaning |
+| --- | --- |
+| `SIZE` | Logical file content, including data shared with other clones |
+| `PRIVATE` | Storage not shared with another clone or filesystem snapshot (APFS); `n/a` when unavailable |
+
+### Control progress output
+
+Interactive runs show a progress bar, entries per second, and estimated time
+remaining. For plain output:
+
+```sh
+clonetree --no-progress new experiment
+```
+
+Non-interactive runs disable progress automatically. Both non-interactive and
+`--no-progress` runs skip the initial entry-counting pass.
 
 ## Benchmark
 
-Two non-interactive full-checkout runs on an Apple M4 Max with 128 GiB RAM, macOS 27.0.1, and APFS.
+**A 39.2 GiB checkout, cloned in 55 seconds on average, using about 88–93 MiB of
+additional disk space.** That includes dependencies, Git metadata, and ignored files.
+
+Two non-interactive full-checkout runs on an Apple M4 Max with 128 GiB RAM,
+macOS 27.0.1, and APFS. Additional disk usage is a filesystem free-space estimate;
+timings and space usage vary with filesystem state and other disk activity.
+
+<details>
+<summary><strong>Full benchmark results</strong></summary>
 
 | Metric | Result |
 | --- | ---: |
@@ -55,11 +171,69 @@ Two non-interactive full-checkout runs on an Apple M4 Max with 128 GiB RAM, macO
 | Total source lines, including comments and blanks | 627,040 |
 | Lines of code | 518,265 |
 
-Copy-on-write shares existing data blocks; additional space grows as files change.
-Timings and space estimates vary with filesystem state and other disk activity.
-
 See [performance notes](PERFORMANCE.md) for allocation benchmarks, escape-analysis
 findings, and collection-disabled memory measurements.
 
-See [testing](TESTING.md) for native XFS/Btrfs e2e tests in Ubuntu Docker or a VM,
-and APFS tests on a macOS host.
+</details>
+
+## How it works
+
+### Native copy-on-write
+
+Clonetree walks the current directory and asks the filesystem to clone each file.
+The new files initially share data blocks with the originals. Editing either file
+allocates storage for its changes without changing the other file's contents.
+
+| Platform | Native cloning |
+| --- | --- |
+| macOS | APFS clones |
+| Linux | XFS/Btrfs reflinks; reflink support must be enabled |
+
+Clonetree uses native cloning only, with no full-copy fallback. Ext4, Windows, and
+cross-filesystem clones are unsupported. On macOS, metadata is read in native
+batches with reusable buffers; standard metadata reads handle unsupported
+filesystems and exceptional entries.
+
+### Included files
+
+- Hidden files, ignored files, installed dependencies, and any `.git` or `.sl`
+  metadata are included. Git's ignore rules don't filter the clone.
+- Directories ending in `.clonetree` are excluded at every depth, including the
+  destination itself.
+- Permissions, modification times, and symlink targets are preserved. Absolute
+  symlinks still point to their original targets.
+- Existing IDs are never overwritten. Failed or cancelled clones are removed.
+
+### Repository metadata
+
+Clonetree copies VCS metadata as-is, including lock files. It doesn't rewrite
+linked/shared stores or absolute metadata paths. For a self-contained Git
+workspace, start at a repository root with its own `.git` directory.
+
+A linked Git worktree's `.git` file still points to its original metadata after
+cloning. Submodules and external stores retain their references too. Cloning a
+subdirectory doesn't automatically create a new checkout: Git or Sapling may still
+discover the original parent repository.
+
+### Storage and consistency
+
+- Files share storage until either workspace changes. Old data stays allocated
+  while any clone needs it; a clone's private usage can grow when the original
+  changes or is deleted.
+- Added disk usage is estimated from filesystem free space. Other disk activity
+  and delayed accounting can affect it.
+- Private storage excludes shared blocks and filesystem-wide metadata overhead.
+  Measurements are scanned live, and unavailable values appear as `n/a`.
+- Cloning is not an atomic directory-wide snapshot. Stop writers and let VCS
+  operations finish before cloning if you need a consistent starting point.
+
+## Learn more
+
+| Looking for… | Start here |
+| --- | --- |
+| Commands and flags | `clonetree --help` or `clonetree <command> --help` |
+| Allocation benchmarks and implementation performance | [Performance notes](PERFORMANCE.md) |
+| Native APFS tests and XFS/Btrfs tests in Ubuntu Docker or a VM | [Testing](TESTING.md) |
+| Logo and social-preview artwork | [Brand assets](docs/BRANDING.md) |
+
+Licensed under [MPL 2.0](LICENSE).

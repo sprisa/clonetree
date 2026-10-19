@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1280" height="640" viewBox="0 0 1280 640" fill="none" font-family="Sofia Pro, Helvetica Neue, Helvetica, Arial, sans-serif" role="img" aria-labelledby="title desc">
+  <title id="title">clonetree — Clone your checkout. Share its storage.</title>
+  <desc id="desc">A Sofia Pro preview with the Canopy modules logo, sepia text on warm white, and overlapping workspace tiles showing included local edits, dependencies, and build output.</desc>
+  <rect width="1280" height="640" fill="#F8F7F3"/>
+  <image x="60" y="46" width="76" height="76" xlink:href="clonetree.svg"/>
+  <text x="147" y="100" fill="#4B3C32" font-size="40" font-weight="600" letter-spacing="-1.6">clonetree</text>
+  <g font-size="72" font-weight="500" letter-spacing="-2.6">
+    <text x="70" y="254" fill="#4B3C32">Clone your checkout.</text>
+    <text x="70" y="335" fill="#65745D">Share its storage.</text>
+  </g>
+  <g fill="#806B58" font-size="22">
+    <text x="74" y="402">Local edits, dependencies, and build output included.</text>
+    <text x="74" y="438">Files share disk space until either copy changes.</text>
+  </g>
+  <circle cx="78" cy="492" r="4" fill="#A7B7A0"/>
+  <text x="92" y="498" fill="#65745D" font-size="17">macOS + Linux</text>
+  <path d="M238 483V501" stroke="#DFDCD4"/>
+  <text x="258" y="498" fill="#806B58" font-size="17">APFS · XFS · Btrfs</text>
+  <g transform="rotate(-7 948 283)">
+    <rect x="832" y="153" width="232" height="260" rx="18" fill="#DEE5D8"/>
+    <text x="858" y="195" fill="#526148" font-size="20" font-weight="500" letter-spacing="-.35">current directory</text>
+    <path d="M858 218H1038" stroke="#BAC6B1"/>
+    <g fill="#BAC6B1">
+      <rect x="858" y="245" width="138" height="6" rx="3"/>
+      <rect x="858" y="265" width="154" height="6" rx="3"/>
+      <rect x="858" y="285" width="111" height="6" rx="3"/>
+      <rect x="858" y="327" width="138" height="6" rx="3"/>
+      <rect x="858" y="347" width="119" height="6" rx="3"/>
+    </g>
+  </g>
+  <g transform="rotate(5 1068 373)">
+    <rect x="941" y="244" width="254" height="258" rx="18" fill="#E9CDBD"/>
+    <text x="965" y="288" fill="#614B3C" font-size="20" font-weight="500" letter-spacing="-.35">my-feature.clonetree</text>
+    <path d="M965 309H1171" stroke="#D1AF99"/>
+    <g stroke="#9D7D66" stroke-width="1.3">
+      <rect x="965" y="329" width="10" height="13" rx="2"/>
+      <rect x="965" y="364" width="10" height="13" rx="2"/>
+      <rect x="965" y="399" width="10" height="13" rx="2"/>
+    </g>
+    <g fill="#725944" font-size="17">
+      <text x="986" y="342">Source + local edits</text>
+      <text x="986" y="377">Installed dependencies</text>
+      <text x="986" y="412">Build output</text>
+    </g>
+    <path d="M965 443H1171" stroke="#D1AF99"/>
+    <text x="965" y="475" fill="#725944" font-size="14">Shared until files change</text>
+  </g>
+  <path d="M74 551H1208" stroke="#DFDCD4"/>
+  <g fill="#806B58" font-size="16">
+    <text x="74" y="591">github.com/sprisa/clonetree</text>
+    <text x="1208" y="591" text-anchor="end">Open source · MPL 2.0</text>
+  </g>
+</svg>

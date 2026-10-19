@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">clonetree — Canopy modules</title>
+  <desc id="desc">Sage and clay geometric canopies contain thin trunk-and-branch lines. One vertical stem continues while a second stem branches to the right.</desc>
+  <circle cx="128" cy="128" r="116" fill="#F8F7F3"/>
+  <g stroke="#4B3C32" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M96 208V119"/>
+    <path d="M96 174H127C157 174 174 162 174 140V126"/>
+  </g>
+  <rect x="63" y="45" width="66" height="93" rx="33" fill="#A7B7A0"/>
+  <rect x="146" y="78" width="56" height="75" rx="28" fill="#D6AB91"/>
+  <g stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M96 138C95 118 96 95 97 75M96 111L82 97M96 98L110 84" stroke="#65745D"/>
+    <path d="M174 153C174 136 174 121 175 102M174 133L162 121M174 122L186 110" stroke="#806B58"/>
+  </g>
+</svg>

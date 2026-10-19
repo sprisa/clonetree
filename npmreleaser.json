@@ -1,8 +1,8 @@
 {
   "package.json": {
     "name": "clonetree",
-    "version": "0.0.2",
-    "description": "Like git worktrees but doesn't use up your disk space. Uses clones instead of copy (aka copy-on-write). Fast worktrees for monorepos.",
+    "version": "{{ .Env.CLONETREE_VERSION }}",
+    "description": "Worktrees that are friendly to your disk space. Uses clones instead of copy (aka copy-on-write). Fast worktrees for monorepos.",
     "license": "MPL-2.0",
     "author": "Gabriel Meola <banter@gabe.mx>",
     "keywords": [
