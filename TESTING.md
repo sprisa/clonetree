@@ -60,6 +60,9 @@ run directly on macOS; there is no Linux-container APFS job.
 - Built CLI subprocesses: `init`, `new`, `info`, and `delete`.
 - Default/custom destinations, current-directory semantics, and multiple read batches.
 - Hidden/ignored files, VCS metadata, Unicode names, permissions, times, and symlinks.
+- APFS native-directory eligibility, set-ID/BSD-flag fallback, timestamp restoration,
+  hardlink independence, late exclusions, and cancellation after a native clone.
+- `info --skip-private-size` omits private accounting while keeping live logical sizes.
 - Shared extents on XFS/Btrfs (`filefrag`), and low initial private usage on APFS.
 - Independent edits in both directions; APFS private storage grows when the original changes.
 - Existing IDs and symlink protection, excluded snapshots, and failed-clone cleanup.

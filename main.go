@@ -41,7 +41,7 @@ func command() *cli.Command {
 			},
 			&cli.BoolFlag{
 				Name:  "no-progress",
-				Usage: "Disable live progress and its initial entry-counting pass",
+				Usage: "Disable live progress",
 			},
 		},
 		Description: `Clones the current working directory, including hidden files, ignored files,
@@ -90,8 +90,10 @@ or digit. Existing IDs are never overwritten. Permissions and modification times
 are preserved. Failed or cancelled clones are removed.
 
 Live progress is enabled when stderr is a terminal, unless --no-progress is set.
-It first counts entries, then shows percentage, entries/second, and estimated time
-remaining. Non-interactive and disabled runs skip the counting pass.
+On APFS, a source scan plans native directory clones and supplies the entry total.
+Other filesystems count entries only for interactive progress. The bar shows
+percentage, entries/second, and estimated time remaining; native directory clones
+advance it in batches.
 
 The disk-saving summary compares logical file size with the change in filesystem
 free space. Added disk usage is an estimate: other disk activity and delayed
@@ -153,10 +155,18 @@ filesystem accounting can affect it. An unavailable estimate is never shown as z
 			{
 				Name:  "info",
 				Usage: "List snapshots in --dir and their storage usage",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "skip-private-size",
+						Usage: "Use less CPU by skipping APFS private-size queries; omit PRIVATE",
+					},
+				},
 				Description: `SIZE is logical file content. PRIVATE is storage not shared with another clone
 or filesystem snapshot, where the filesystem exposes it (APFS). It excludes
 filesystem-wide metadata overhead. Shared blocks are not counted as private.
-Unsupported measurements are shown as n/a. Sizes are scanned live.`,
+Unsupported measurements are shown as n/a. Sizes are scanned live.
+Use --skip-private-size to reduce CPU by omitting private-storage queries and the
+PRIVATE column. SIZE is still scanned live.`,
 				Action: showInfo,
 			},
 		},
@@ -199,14 +209,23 @@ func showInfo(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	w := tabwriter.NewWriter(cmd.Root().Writer, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tSIZE\tPRIVATE")
+	skipPrivateSize := cmd.Bool("skip-private-size")
+	if skipPrivateSize {
+		fmt.Fprintln(w, "ID\tSIZE")
+	} else {
+		fmt.Fprintln(w, "ID\tSIZE\tPRIVATE")
+	}
 	for _, entry := range entries {
 		if !entry.IsDir() || !strings.HasSuffix(entry.Name(), treeSuffix) {
 			continue
 		}
-		size, err := treeSize(ctx, filepath.Join(directory, entry.Name()))
+		size, err := treeSizeWithPrivate(ctx, filepath.Join(directory, entry.Name()), !skipPrivateSize)
 		if err != nil {
 			return fmt.Errorf("size of %s: %w", entry.Name(), err)
+		}
+		if skipPrivateSize {
+			fmt.Fprintf(w, "%s\t%s\n", strings.TrimSuffix(entry.Name(), treeSuffix), bytesString(size.Logical))
+			continue
 		}
 		private := "n/a"
 		if size.Private != nil {
@@ -218,6 +237,8 @@ func showInfo(ctx context.Context, cmd *cli.Command) error {
 	if err := w.Flush(); err != nil {
 		return err
 	}
-	fmt.Fprintln(cmd.Root().Writer, "\nPRIVATE excludes shared blocks and filesystem metadata; n/a = unavailable.")
+	if !skipPrivateSize {
+		fmt.Fprintln(cmd.Root().Writer, "\nPRIVATE excludes shared blocks and filesystem metadata; n/a = unavailable.")
+	}
 	return nil
 }

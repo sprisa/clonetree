@@ -1,107 +1,151 @@
-# Performance notes
+# Performance
 
-Allocation/escape-analysis pass measured with Go 1.27.2 on an Apple M4 Max,
-128 GiB RAM, macOS 27.0.1, and APFS.
+Clonetree shares existing file data through native filesystem clones. Runtime
+depends primarily on the number of entries and the filesystem's metadata work.
+Large file contents stay shared until either copy changes.
 
-## Allocation results
+## Benchmarks
 
-Filesystem benchmarks use 1,024 regular files (1 KiB each), 32 directories, and
-32 symlinks. Fixture setup and snapshot deletion are excluded from clone metrics.
+Measured October 26, 2026, on an Apple M4 Max with 128 GiB RAM, macOS 27.0.1,
+APFS, and Go 1.27.3. Commands ran non-interactively with default Go garbage
+collection.
 
-| Operation | Before | After |
-| --- | ---: | ---: |
-| Plain clone: allocated bytes | ~1.22 MB | ~0.46 MB (**62% less**) |
-| Plain clone: allocations | 10,332 | 6,298 |
-| Clone with entry counting: allocated bytes | ~1.46 MB | ~0.70 MB |
-| Snapshot sizing: allocated bytes | ~0.90 MB | ~0.41 MB (**55% less**) |
-| Snapshot sizing: allocations | 8,049 | 4,882 |
-| Progress formatting per frame | 808 B / 20 allocations | **0 B / 0 allocations** |
+### APFS cloning
 
-The main changes:
+The workload is a fixed snapshot of a local monorepo, including installed
+dependencies, build output, hidden files, and repository metadata.
 
-- Batch metadata reads directly into `FileInfo` values, avoiding `DirEntry`
-  wrappers and duplicate metadata/path work where metadata is required.
-- Clone regular files relative to open directory handles, avoiding full-path
-  construction and conversion for each file. Destination handles are closed
-  before descending, keeping descriptor use bounded by traversal depth.
-- Query APFS private sizes relative to the same directory handles.
-- Reuse one progress-rendering buffer with append-based formatting.
-- Validate IDs with an ASCII loop, removing the regexp dependency.
-- Change directory permissions during deletion only when owner access is missing.
-- Skip the progress-counting pass entirely for non-TTY or `--no-progress` runs.
+| Workload | Value |
+| --- | ---: |
+| Logical file bytes | 61,279,400,665 (**57.1 GiB**) |
+| Regular files | 320,444 |
+| Directories | 59,700 |
+| Symlinks | 16,875 |
 
-Compiler reports confirm traversal callbacks do not escape. Most remaining
-per-entry allocations are in Go's filesystem metadata and filename APIs.
+Results for `clonetree --no-progress new`, averaged over two runs:
 
-## Collection-disabled experiment
+| Measurement | Mean |
+| --- | ---: |
+| Wall time | **10.031s** |
+| User CPU time | 0.305s |
+| System CPU time | 8.705s |
+| Total process CPU time | **9.010s** |
+| Peak resident memory (RSS) | **14.555 MiB** |
 
-Two alternating runs per version on the 39.2 GiB monorepo, with `GOGC=off`,
-`--no-progress`, and GC tracing enabled. No GC cycles were observed.
+| Run | Wall time | User CPU | System CPU | Peak RSS |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 9.932s | 0.300s | 8.680s | 14.250 MiB |
+| 2 | 10.130s | 0.310s | 8.730s | 14.859 MiB |
 
-| Metric | Before | After |
-| --- | ---: | ---: |
-| Mean peak resident memory | 513.7 MiB | **252.0 MiB** |
-| Mean wall time | 51.4s | 48.8s |
-| Individual wall times | 55.1s / 47.8s | 48.7s / 48.9s |
+CPU time is user plus system time for the process. It measures CPU work across
+the command's lifetime, not peak utilization; cloning can occupy a core while
+running. Wall time also includes time waiting for filesystem operations.
 
-The memory reduction is repeatable; wall times overlap and remain dependent on
-filesystem/cache activity. Memory use with collection disabled still grows with
-entry count because the filesystem APIs allocate per entry.
+### Memory scaling
 
-Standard Go's `GOGC=off` disables automatic collection; it does **not** remove the
-collector from the binary. A normal build decreased from 6.06 MB to 5.67 MB;
-`-trimpath -ldflags='-s -w'` produced a 3.77 MB executable.
+The following fixed-depth sources have one small file per leaf directory, grouped
+into directories of at most 256 leaves. `runtime.MemStats.HeapAlloc` was sampled
+every 20 ms during clone creation, with fixture setup and deletion excluded.
 
-## Default macOS bulk-metadata reader
+| Leaf directories | Sampled peak Go heap |
+| --- | ---: |
+| 4,000 | 3.71 MiB |
+| 16,000 | 3.74 MiB |
+| 64,000 | 3.73 MiB |
 
-The macOS default uses `getattrlistbulk` and reusable 64 KiB buffers to
-fetch names, types, permissions, modification times, sizes, and optionally APFS
-private sizes in batches. Metadata is passed as concrete values with owned names,
-independent of the pooled buffer's lifetime. Linux uses the standard reader.
-The following comparison was measured during prototyping, before promotion:
+On the monorepo workload, separately sampled peak Go heap was **4.9 MiB**.
 
-| Measurement | Standard reader | Bulk prototype |
-| --- | ---: | ---: |
-| Metadata-only fixture: allocated bytes | ~402 KB | ~20 KB |
-| Metadata-only fixture: time | ~1.55ms | ~0.81ms |
-| Full monorepo metadata scan: mean time | 2.63s | 1.10s |
-| Full monorepo scan including private sizes: mean time | 3.67s | 1.53s |
-| Full clone harness: Go allocations | ~278 MiB | ~83 MiB |
-| Full clone harness: mean time | 53.6s | 54.6s |
+Go heap and RSS are different measurements. RSS covers the resident memory of the
+whole process. The live Go heap depends on traversal depth and fixed cache limits;
+it does not retain a record for every file or directory. Cumulative allocations
+increase as entries are processed, while garbage collection reclaims temporary
+metadata.
 
-Full scans visited the same 274,092 entries. Metadata scan timings are two
-alternating runs per reader with warm filesystem caches. The clone harness
-uses identical clone operations with only the metadata reader swapped, two
-alternating runs per reader, and `GOGC=off`; allocated bytes are total Go heap
-allocations during copying, not peak resident memory.
+### Size listing
 
-The prototype significantly reduces allocation volume and metadata-query time,
-but has not demonstrated an end-to-end clone-speed improvement. Native clone
-operations still dominate copying time.
+This workload contains 57.1 GiB of file data, 320,399 regular files, 59,685
+directories, and 16,875 symlinks. Results are means of two runs per command.
 
-Correctness checks cover multi-batch directories, Unicode and long names,
-directories, dangling symlinks, FIFOs, modification times, permissions, set-ID
-bits, APFS private sizes, and malformed packed records.
+| Command | Wall time | Process CPU time | Peak RSS |
+| --- | ---: | ---: | ---: |
+| `info` | 2.447s | 2.430s | 13.320 MiB |
+| `info --skip-private-size` | 1.927s | 1.900s | 13.164 MiB |
 
-Unsupported bulk APIs use the standard reader on a fresh directory cursor, only
-before any entries have been delivered. Entries with missing required metadata,
-mount points, and firmlinks use ordinary metadata lookup so attributes match the
-directory actually traversed. Packed-record lengths and name references are
-validated before decoding.
+`info` calculates live logical sizes and APFS private storage for every entry.
+Private storage can change when another clone or the original is modified or
+deleted, even if this clone is untouched.
 
-A full 39.2 GiB validation run of the promoted default completed in 55.9s with
-93.95 MiB peak RSS under `GOGC=off`, with no GC cycles observed. This is a single
-validation measurement, not a new timing average.
+`--skip-private-size` omits the private-storage queries and the `PRIVATE` column.
+It still scans the files to calculate `SIZE`. In this measurement it used about
+22% less process CPU time.
 
-## Reproduce
+## Filesystem operations
 
-From this module:
+### APFS directory cloning
+
+A source scan identifies subtrees that require per-entry handling. Excluded
+directories, set-ID permissions, BSD flags, and unavailable flag information
+prevent the containing subtree from using native directory cloning. Eligible
+children can use the native path even when their parent requires per-entry work.
+
+Eligible subtrees are cloned with native APFS directory operations. The completed
+subtree is scanned to calculate its logical size, restore directory timestamps,
+and remove excluded directories that appeared during cloning. Unsupported
+directory-clone operations use native per-file cloning. There is no full-copy
+fallback.
+
+Progress updates in directory batches. Cancellation is checked before and after
+a native batch and during its final scan. Failed or cancelled clones are removed.
+
+### Metadata traversal and memory bounds
+
+On macOS, `getattrlistbulk` reads metadata into reusable 64 KiB buffers. Names are
+owned independently of those buffers. Standard metadata reads handle unsupported
+bulk operations, mount points, firmlinks, and missing required attributes.
+Linux uses the standard metadata reader and per-file XFS/Btrfs reflinks.
+
+Native-clone eligibility tracks unsafe directory paths and their ancestors, with
+a limit of 4,096 paths. Reaching that limit selects the per-entry path. Pending
+late-exclusion records are capped too. Directory metadata is read when needed
+during restoration. Traversal and cleanup enumerate entries in bounded batches.
+
+Working memory therefore scales with traversal depth and fixed limits, rather
+than total entry count. Runtime still scales with the entries being visited.
+
+## Measurement method
+
+- Binaries were built with `go build -trimpath -ldflags='-s -w'`. `GOGC`,
+  `GOMEMLIMIT`, and `GODEBUG` were unset.
+- Commands used a prepared input snapshot and wrote outside it on the same APFS
+  filesystem. Existing `.clonetree` directories were excluded from that input.
+- Wall time surrounds `/usr/bin/time -l <command>`. CPU time and peak RSS come
+  from the timing tool. RSS bytes are converted to MiB.
+- Clone timings include eligibility scanning, native cloning, output inspection,
+  and timestamp restoration. Independent output verification, fixture creation,
+  and deletion are outside the timings. Filesystem caches were not cleared.
+- Outputs were checked for matching paths, entry types, logical sizes,
+  permissions, modification times, and symlink targets. The head and tail of 64
+  sampled files were checked for matching contents.
+- Heap measurements use a separate sampling harness with default garbage
+  collection. They are not total-allocation measurements.
+
+## Run benchmarks
+
+From this module, run the filesystem fixtures and build a local binary:
 
 ```sh
 GOWORK=off go test -run '^$' -bench . -benchmem
-GOWORK=off go build -gcflags='-m=2' -o /tmp/clonetree .
 GOWORK=off go build -trimpath -ldflags='-s -w' -o /tmp/clonetree .
+```
 
-# Compare the default macOS bulk reader with the standard reader:
-GOWORK=off go test -run '^$' -bench '^BenchmarkMetadataReader$' -benchmem
+From the directory you want to clone, choose a temporary parent on the same
+filesystem and measure each command:
+
+```sh
+BENCH=$(mktemp -d "${TMPDIR:-/tmp}/clonetree-bench.XXXXXX")
+/usr/bin/time -l /tmp/clonetree --dir "$BENCH" --no-progress new sample
+/usr/bin/time -l /tmp/clonetree --dir "$BENCH" --no-progress info
+/usr/bin/time -l /tmp/clonetree --dir "$BENCH" --no-progress info --skip-private-size
+/tmp/clonetree --dir "$BENCH" --no-progress delete sample
+rmdir "$BENCH"
 ```

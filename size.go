@@ -12,6 +12,10 @@ type sizes struct {
 }
 
 func treeSize(ctx context.Context, root string) (sizes, error) {
+	return treeSizeWithPrivate(ctx, root, true)
+}
+
+func treeSizeWithPrivate(ctx context.Context, root string, wantPrivate bool) (sizes, error) {
 	var result sizes
 	if err := ctx.Err(); err != nil {
 		return result, err
@@ -23,7 +27,11 @@ func treeSize(ctx context.Context, root string) (sizes, error) {
 	if info.Mode().IsRegular() {
 		result.Logical = uint64(info.Size())
 	}
-	private, known := privateSize(root)
+	var private uint64
+	known := false
+	if wantPrivate {
+		private, known = privateSize(root)
+	}
 	var scan func(string) error
 	scan = func(path string) error {
 		return forEachFile(ctx, path, known, func(_ int, child fileMetadata) error {
