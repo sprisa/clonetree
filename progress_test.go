@@ -107,3 +107,48 @@ func TestCountingFailureCleansDestination(t *testing.T) {
 		})
 	}
 }
+
+func TestNativeBatchProgressShowsActivityWithoutETA(t *testing.T) {
+	p := &progress{started: time.Now(), columns: 200}
+	p.bulk.Store(true)
+	p.setTotal(400000)
+	p.entries.Store(1756)
+	p.activity.Store(&progressActivity{directory: "dependencies"})
+	now := p.cloneStarted.Load().Add(6 * time.Second)
+	status := string(p.appendStatus(nil, "Scanning source", now))
+	if !strings.Contains(status, "Cloning directory dependencies") || !strings.Contains(status, "6s") ||
+		strings.Contains(status, "ETA") || strings.Contains(status, "/s") || strings.Contains(status, "0%") {
+		t.Fatalf("misleading native batch status: %q", status)
+	}
+	p.entries.Store(200000)
+	p.activity.Store(&progressActivity{directory: "dependencies", checking: true})
+	status = string(p.appendStatus(nil, "Scanning source", now))
+	for _, want := range []string{"Checking dependencies", "50%", "200000/400000 entries"} {
+		if !strings.Contains(status, want) {
+			t.Fatalf("missing %q in %q", want, status)
+		}
+	}
+	if strings.Contains(status, "ETA") || strings.Contains(status, "/s") {
+		t.Fatalf("batched inspection extrapolated an ETA: %q", status)
+	}
+	var buffer [512]byte
+	if allocations := testing.AllocsPerRun(100, func() { p.appendStatus(buffer[:0], "Scanning source", now) }); allocations != 0 {
+		t.Fatalf("batch status allocated: %v", allocations)
+	}
+}
+
+func TestProgressAcknowledgesStoppingAndCleanup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	p := &progress{ctx: ctx, started: time.Now(), columns: 160}
+	p.setTotal(100)
+	cancel()
+	status := string(p.appendStatus(nil, "Scanning source", time.Now()))
+	if !strings.Contains(status, "Stopping") || strings.Contains(status, "Cloning") || strings.Contains(status, "ETA") {
+		t.Fatalf("cancelled progress still reported cloning: %q", status)
+	}
+	p.cleaning.Store(true)
+	status = string(p.appendStatus(nil, "Scanning source", time.Now()))
+	if !strings.Contains(status, "Removing partial clone") || strings.Contains(status, "ETA") {
+		t.Fatalf("cleanup phase was not shown: %q", status)
+	}
+}

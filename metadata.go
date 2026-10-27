@@ -15,6 +15,8 @@ type fileMetadata struct {
 	modified     time.Time
 	private      uint64
 	privateKnown bool
+	flags        uint32
+	flagsKnown   bool
 }
 
 func metadataFromInfo(info fs.FileInfo) fileMetadata {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"os"
 	"strconv"
@@ -9,18 +10,27 @@ import (
 	"unicode/utf8"
 )
 
+type progressActivity struct {
+	directory string
+	checking  bool
+}
+
 type progress struct {
 	entries      atomic.Uint64
 	bytes        atomic.Uint64
 	total        atomic.Uint64
 	cloneStarted atomic.Pointer[time.Time]
+	activity     atomic.Pointer[progressActivity]
+	bulk         atomic.Bool
+	cleaning     atomic.Bool
+	ctx          context.Context
 	started      time.Time
 	columns      int
 	done         chan struct{}
 	finished     chan struct{}
 }
 
-func startProgress(writer io.Writer, label string, disabled bool) *progress {
+func startProgress(ctx context.Context, writer io.Writer, label string, disabled bool) *progress {
 	if disabled {
 		return nil
 	}
@@ -29,6 +39,7 @@ func startProgress(writer io.Writer, label string, disabled bool) *progress {
 		return nil
 	}
 	p := &progress{
+		ctx:     ctx,
 		started: time.Now(), columns: terminalWidth(int(file.Fd())),
 		done: make(chan struct{}), finished: make(chan struct{}),
 	}
@@ -95,9 +106,25 @@ func (p *progress) render(writer *os.File, label string) {
 func (p *progress) appendStatus(dst []byte, label string, now time.Time) []byte {
 	start := len(dst)
 	elapsed := now.Sub(p.started).Round(100 * time.Millisecond)
+	if p.cleaning.Load() || p.ctx != nil && p.ctx.Err() != nil {
+		if p.cleaning.Load() {
+			dst = append(dst, "Removing partial clone"...)
+		} else {
+			dst = append(dst, "Stopping"...)
+		}
+		dst = append(dst, " · "...)
+		return appendDuration(dst, elapsed)
+	}
 	started := p.cloneStarted.Load()
 	if started == nil {
 		dst = append(dst, label...)
+		dst = append(dst, " · "...)
+		return appendDuration(dst, elapsed)
+	}
+	activity := p.activity.Load()
+	if activity != nil && !activity.checking {
+		dst = append(dst, "Cloning directory "...)
+		dst = append(dst, activity.directory...)
 		dst = append(dst, " · "...)
 		return appendDuration(dst, elapsed)
 	}
@@ -106,13 +133,14 @@ func (p *progress) appendStatus(dst []byte, label string, now time.Time) []byte 
 	if total != 0 && count < total {
 		percent = int(float64(count) / float64(total) * 100)
 	}
-	rate := float64(0)
-	if seconds := now.Sub(*started).Seconds(); seconds > 0 {
-		rate = float64(count) / seconds
-	}
-	remaining := total - min(count, total)
 	filled := percent * 12 / 100
-	dst = append(dst, "Cloning ["...)
+	if activity != nil {
+		dst = append(dst, "Checking "...)
+		dst = append(dst, activity.directory...)
+	} else {
+		dst = append(dst, "Cloning"...)
+	}
+	dst = append(dst, " ["...)
 	for i := range 12 {
 		if i < filled {
 			dst = append(dst, "█"...)
@@ -126,20 +154,28 @@ func (p *progress) appendStatus(dst []byte, label string, now time.Time) []byte 
 	dst = strconv.AppendUint(dst, count, 10)
 	dst = append(dst, '/')
 	dst = strconv.AppendUint(dst, total, 10)
-	dst = append(dst, " entries · "...)
-	dst = appendCount(dst, rate)
-	dst = append(dst, "/s · ETA "...)
-	switch {
-	case remaining == 0:
-		dst = append(dst, "0s"...)
-	case rate <= 0:
-		dst = append(dst, "--"...)
-	default:
-		duration := time.Duration(float64(remaining) / rate * float64(time.Second))
-		if duration < time.Second {
-			dst = append(dst, "<1s"...)
-		} else {
-			dst = appendDuration(dst, duration.Round(time.Second))
+	dst = append(dst, " entries"...)
+	if !p.bulk.Load() {
+		rate := float64(0)
+		if seconds := now.Sub(*started).Seconds(); seconds > 0 {
+			rate = float64(count) / seconds
+		}
+		remaining := total - min(count, total)
+		dst = append(dst, " · "...)
+		dst = appendCount(dst, rate)
+		dst = append(dst, "/s · ETA "...)
+		switch {
+		case remaining == 0:
+			dst = append(dst, "0s"...)
+		case rate <= 0:
+			dst = append(dst, "--"...)
+		default:
+			duration := time.Duration(float64(remaining) / rate * float64(time.Second))
+			if duration < time.Second {
+				dst = append(dst, "<1s"...)
+			} else {
+				dst = appendDuration(dst, duration.Round(time.Second))
+			}
 		}
 	}
 	for i := range 2 {

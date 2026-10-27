@@ -59,7 +59,10 @@ func TestInfoSizeGrowsWhenOriginalChanges(t *testing.T) {
 			if err := initProject(root); err != nil {
 				t.Fatal(err)
 			}
-			source := filepath.Join(root, "data")
+			source := filepath.Join(root, "nested", "data")
+			if err := os.Mkdir(filepath.Dir(source), 0755); err != nil {
+				t.Fatal(err)
+			}
 			data := make([]byte, 1024*1024)
 			if err := os.WriteFile(source, data, 0644); err != nil {
 				t.Fatal(err)
@@ -86,7 +89,7 @@ func TestInfoSizeGrowsWhenOriginalChanges(t *testing.T) {
 			if err != nil || after.Private == nil || *after.Private <= *before.Private {
 				t.Fatalf("snapshot did not acquire private storage: before %+v, after %+v, %v", before, after, err)
 			}
-			if after.Logical != before.Logical || read(t, filepath.Join(tree, "data"))[0] != 0 {
+			if after.Logical != before.Logical || read(t, filepath.Join(tree, "nested", "data"))[0] != 0 {
 				t.Fatal("original change altered snapshot content or logical size")
 			}
 		})
