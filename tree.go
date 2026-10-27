@@ -77,17 +77,27 @@ func newTree(ctx context.Context, root, directory, id string, report *progress) 
 	}
 	defer func() {
 		if err != nil {
+			if report != nil {
+				report.cleaning.Store(true)
+			}
 			err = errors.Join(err, removeTree(destination))
 		}
 	}()
-	if report != nil {
+	plan, err := prepareClonePlan(ctx, root)
+	if err != nil {
+		return result, fmt.Errorf("scan clone source: %w", err)
+	}
+	if report != nil && plan != nil {
+		report.bulk.Store(true)
+		report.setTotal(plan.entries)
+	} else if report != nil {
 		total, err := countEntries(ctx, root)
 		if err != nil {
 			return result, fmt.Errorf("count entries: %w", err)
 		}
 		report.setTotal(total)
 	}
-	result.Logical, err = cloneDirectory(ctx, root, destination, report)
+	result.Logical, err = cloneDirectory(ctx, root, destination, report, plan)
 	if err != nil {
 		return result, fmt.Errorf("clone failed (native copy-on-write support required): %w", err)
 	}
@@ -156,7 +166,7 @@ func countEntries(ctx context.Context, source string) (uint64, error) {
 	return total, err
 }
 
-func cloneDirectory(ctx context.Context, source, destination string, report *progress) (uint64, error) {
+func cloneDirectory(ctx context.Context, source, destination string, report *progress, plan *clonePlan) (uint64, error) {
 	var target *os.File
 	defer func() {
 		if target != nil {
@@ -182,6 +192,9 @@ func cloneDirectory(ctx context.Context, source, destination string, report *pro
 				return fmt.Errorf("%s: %w", filepath.Join(source, info.name), err)
 			}
 			size = uint64(info.size)
+			if report != nil {
+				report.add(size)
+			}
 		} else {
 			if info.mode.IsDir() && target != nil {
 				// Do not keep a destination handle at every level of a deep tree.
@@ -193,43 +206,77 @@ func cloneDirectory(ctx context.Context, source, destination string, report *pro
 			}
 			src, dst := filepath.Join(source, info.name), filepath.Join(destination, info.name)
 			var err error
-			size, err = cloneEntry(ctx, src, dst, info, report)
+			size, err = cloneEntry(ctx, src, dst, info, report, plan)
 			if err != nil {
 				return err
 			}
 		}
 		logical += size
-		if report != nil {
-			if info.mode.IsDir() {
-				report.add(0) // Children have already reported their content.
-			} else {
-				report.add(size)
-			}
-		}
 		return nil
 	})
 	return logical, err
 }
 
-func cloneEntry(ctx context.Context, source, destination string, info fileMetadata, report *progress) (uint64, error) {
+func cloneEntry(ctx context.Context, source, destination string, info fileMetadata, report *progress, plan *clonePlan) (uint64, error) {
 	if info.mode&os.ModeSymlink != 0 {
 		target, err := os.Readlink(source)
 		if err != nil {
 			return 0, err
 		}
-		return 0, os.Symlink(target, destination)
+		if err := os.Symlink(target, destination); err != nil {
+			return 0, err
+		}
+		if report != nil {
+			report.add(0)
+		}
+		return 0, nil
 	}
 	if !info.mode.IsDir() {
 		return 0, fmt.Errorf("unsupported file type: %s", source)
 	}
+	if plan.allowsNative(source, info) {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		if report != nil {
+			report.activity.Store(&progressActivity{directory: info.name})
+			defer report.activity.Store(nil)
+		}
+		cloned, err := cloneDirectoryNative(source, destination)
+		if err != nil {
+			return 0, err
+		}
+		if cloned {
+			if report != nil {
+				report.activity.Store(&progressActivity{directory: info.name, checking: true})
+				report.add(0) // The directory itself was created by the native batch.
+			}
+			actual, err := inspectDirectoryClone(ctx, source, destination, info, report)
+			if err != nil {
+				return 0, err
+			}
+			return actual.logical, nil
+		}
+		if report != nil {
+			report.activity.Store(nil)
+		}
+		// Avoid retrying an unsupported directory operation for every descendant.
+		plan.disabled = true
+	}
 	if err := os.Mkdir(destination, 0700); err != nil {
 		return 0, err
 	}
-	logical, err := cloneDirectory(ctx, source, destination, report)
+	logical, err := cloneDirectory(ctx, source, destination, report, plan)
 	if err != nil {
 		return 0, err
 	}
-	return logical, preserveMetadata(destination, info)
+	if err := preserveMetadata(destination, info); err != nil {
+		return 0, err
+	}
+	if report != nil {
+		report.add(0) // Descendants have already reported their content.
+	}
+	return logical, nil
 }
 
 func preserveMetadata(path string, info fileMetadata) error {
@@ -255,23 +302,52 @@ func deleteTree(root, id string) error {
 }
 
 func removeTree(path string) error {
-	// Source directories may be read-only; make our own directories removable.
-	if err := filepath.WalkDir(path, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			info, err := entry.Info()
-			if err != nil {
-				return err
-			}
-			if info.Mode().Perm()&0700 != 0700 {
-				return os.Chmod(path, info.Mode()|0700)
-			}
-		}
-		return nil
-	}); err != nil {
+	// Most clones are writable. Let RemoveAll finish those in one streaming
+	// pass; only revisit leftovers when copied directory permissions block it.
+	err := os.RemoveAll(path)
+	if err == nil || !errors.Is(err, fs.ErrPermission) {
+		return err
+	}
+	if err := makeTreeRemovable(path); err != nil {
 		return err
 	}
 	return os.RemoveAll(path)
+}
+
+func makeTreeRemovable(path string) error {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil || !info.IsDir() {
+		return err
+	}
+	if info.Mode().Perm()&0700 != 0700 {
+		if err := os.Chmod(path, info.Mode()|0700); err != nil {
+			return err
+		}
+	}
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	for {
+		// WalkDir sorts and retains every entry in a wide directory. Bounded
+		// batches keep cancellation cleanup and late-exclusion pruning flat too.
+		entries, err := dir.ReadDir(256)
+		if err != nil && err != io.EOF {
+			return err
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				if err := makeTreeRemovable(filepath.Join(path, entry.Name())); err != nil {
+					return err
+				}
+			}
+		}
+		if err == io.EOF {
+			return nil
+		}
+	}
 }

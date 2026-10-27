@@ -27,8 +27,8 @@ starting from the files on disk rather than a commit.
 - **Share file storage.** Files are separate, but their existing data is not
   copied again. More space is used as either copy changes.
 
-In our [APFS benchmark](#benchmark), a **39.2 GiB checkout** cloned in **55 seconds**
-on average, with **~88–93 MiB** of estimated additional disk usage.
+In our [APFS benchmark](#benchmark), a **57.1 GiB checkout** with **320,652 files**
+cloned in **9.9 seconds** on average.
 
 **Requires macOS with APFS, or Linux with reflink-enabled XFS/Btrfs.** Source and
 destination must be on the same filesystem. No Git repository is required.
@@ -134,53 +134,69 @@ snapshots and shows their logical size and private storage where available:
 | `SIZE` | Logical file content, including data shared with other clones |
 | `PRIVATE` | Storage not shared with another clone or filesystem snapshot (APFS); `n/a` when unavailable |
 
+Measuring `PRIVATE` asks APFS how much file data is unshared. When you only need
+the `SIZE` column, skip that work to use less CPU:
+
+```sh
+clonetree info --skip-private-size
+```
+
+This shows `ID` and `SIZE`, omitting private-storage queries and the `PRIVATE`
+column. It still walks the files to calculate `SIZE`.
+
 ### Control progress output
 
-Interactive runs show a progress bar, entries per second, and estimated time
-remaining. For plain output:
+Interactive runs show the current phase and elapsed time. APFS clones identify the
+directory being cloned and advance checked-entry progress during metadata
+validation. Per-file rates and ETAs are omitted for native batches.
+
+For plain output:
 
 ```sh
 clonetree --no-progress new experiment
 ```
 
-Non-interactive runs disable progress automatically. Both non-interactive and
-`--no-progress` runs skip the initial entry-counting pass.
+Non-interactive runs disable progress automatically.
+
+### Stop a running command
+
+Press **Ctrl+C** to cancel. Clonetree acknowledges the request immediately and
+shows when it is removing the partial clone. Large partial trees can take several
+seconds to delete.
+
+Press **Ctrl+C again** to exit without waiting for cleanup. If a partial clone
+remains, remove it with `clonetree delete <id>` using the same `--dir` parent.
 
 ## Benchmark
 
-**A 39.2 GiB checkout, cloned in 55 seconds on average, using about 88–93 MiB of
-additional disk space.** That includes dependencies, Git metadata, and ignored files.
+A **57.1 GiB** directory containing **320,652 files**, **59,778 directories**, and
+**16,844 symlinks** was cloned on an Apple M4 Max with 128 GiB RAM, macOS 27.0.1,
+APFS, and Go 1.27.3:
 
-Two non-interactive full-checkout runs on an Apple M4 Max with 128 GiB RAM,
-macOS 27.0.1, and APFS. Additional disk usage is a filesystem free-space estimate;
-timings and space usage vary with filesystem state and other disk activity.
-
-<details>
-<summary><strong>Full benchmark results</strong></summary>
-
-| Metric | Result |
+| Measurement | Result |
 | --- | ---: |
-| Checkout size, including dependencies, Git metadata, and ignored files | **39.2 GiB** |
-| Average clone time | **55.0s** |
-| Individual runs | 53.8s / 56.2s |
-| Additional disk usage (free-space estimate) | **~88–93 MiB** |
-| Regular files | ~223,000 |
-| Directories | ~36,700 |
-| Symlinks | ~14,000 |
-| Source files (`cloc`) | 2,587 |
-| Total source lines, including comments and blanks | 627,040 |
-| Lines of code | 518,265 |
+| Mean clone time | **9.9s** |
+| Mean process CPU time | **8.4s** |
+| Mean peak resident memory (RSS) | **14.0 MiB** |
+| Sampled peak Go heap | **4.9 MiB** |
 
-See [performance notes](PERFORMANCE.md) for allocation benchmarks, escape-analysis
-findings, and collection-disabled memory measurements.
+Timing and RSS are means of two runs. Heap was sampled separately. Source
+preparation, output verification, and deletion are excluded from the timings;
+filesystem caches were not cleared. Results depend on entry count, filesystem
+state, and other disk activity.
 
-</details>
+See [performance](PERFORMANCE.md) for workload details, memory scaling, and
+benchmark commands.
 
 ## How it works
 
 ### Native copy-on-write
 
-Clonetree walks the current directory and asks the filesystem to clone each file.
+Clonetree scans the current directory. On APFS, ordinary subtrees use native
+directory cloning; exclusions, special metadata, and unsupported directory-clone
+operations use the native per-file path. The completed subtrees are checked for
+exclusions and their directory timestamps are restored.
+
 The new files initially share data blocks with the originals. Editing either file
 allocates storage for its changes without changing the other file's contents.
 
@@ -232,7 +248,7 @@ discover the original parent repository.
 | Looking for… | Start here |
 | --- | --- |
 | Commands and flags | `clonetree --help` or `clonetree <command> --help` |
-| Allocation benchmarks and implementation performance | [Performance notes](PERFORMANCE.md) |
+| Runtime, memory use, and benchmark commands | [Performance](PERFORMANCE.md) |
 | Native APFS tests and XFS/Btrfs tests in Ubuntu Docker or a VM | [Testing](TESTING.md) |
 | Logo and social-preview artwork | [Brand assets](docs/BRANDING.md) |
 

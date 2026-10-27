@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -16,6 +17,29 @@ func TestTreeSizeDoesNotFollowSymlinks(t *testing.T) {
 	size, err := treeSize(context.Background(), root)
 	if err != nil || size.Logical != 5 {
 		t.Fatalf("size: %+v, %v", size, err)
+	}
+}
+
+func TestSkipPrivateSize(t *testing.T) {
+	root := fixture(t)
+	write(t, filepath.Join(root, "nested", "data"), "hello")
+	if err := os.Symlink(root, filepath.Join(root, "loop")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := treeSizeWithPrivate(context.Background(), root, false)
+	if err != nil || got.Logical != 5 || got.Private != nil {
+		t.Fatalf("size without private accounting: %+v, %v", got, err)
+	}
+	parent := fixture(t)
+	write(t, filepath.Join(parent, "clonetree", "snapshot.clonetree", "data"), "hello")
+	t.Chdir(parent)
+	output, err := runCLI(t, "info", "--skip-private-size")
+	if err != nil || !strings.Contains(output, "snapshot") || !strings.Contains(output, "5 B") || strings.Contains(output, "PRIVATE") {
+		t.Fatalf("skip-private-size info: %q, %v", output, err)
+	}
+	help, err := runCLI(t, "info", "--help")
+	if err != nil || !strings.Contains(help, "--skip-private-size") || !strings.Contains(help, "less CPU") {
+		t.Fatalf("private-size flag help: %q, %v", help, err)
 	}
 }
 

@@ -415,3 +415,27 @@ func TestVCSReferencesAreCopiedVerbatim(t *testing.T) {
 		t.Fatal("changed external store")
 	}
 }
+
+func TestRemoveTreeStreamsReadonlyDirectoryWithoutFollowingLinks(t *testing.T) {
+	root, outside := fixture(t), fixture(t)
+	write(t, filepath.Join(outside, "keep"), "outside")
+	target := filepath.Join(root, "copy.clonetree")
+	for i := range 1000 {
+		write(t, filepath.Join(target, "readonly", fmt.Sprintf("file-%04d", i)), "data")
+	}
+	if err := os.Symlink(outside, filepath.Join(target, "outside")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(target, "readonly"), 0555); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeTree(target); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		t.Fatal("removed tree still exists")
+	}
+	if read(t, filepath.Join(outside, "keep")) != "outside" {
+		t.Fatal("cleanup followed an external symlink")
+	}
+}
