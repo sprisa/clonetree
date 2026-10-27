@@ -162,6 +162,7 @@ func decodeBulkMetadata(record []byte, wantPrivate bool) (entry fileMetadata, lo
 	kind, access := binary.LittleEndian.Uint32(record[36:]), binary.LittleEndian.Uint32(record[56:])
 	entry.mode = metadataMode(kind, access)
 	entry.modified = time.Unix(int64(binary.LittleEndian.Uint64(record[40:])), int64(binary.LittleEndian.Uint64(record[48:])))
+	entry.flags, entry.flagsKnown = binary.LittleEndian.Uint32(record[60:]), common&attrFlags != 0
 	field := 64
 	if entry.mode.IsDir() {
 		field += 4 // Directory mount status; file attributes are omitted for directories.
