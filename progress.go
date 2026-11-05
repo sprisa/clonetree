@@ -5,10 +5,33 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 	"unicode/utf8"
+
+	"github.com/mattn/go-runewidth"
 )
+
+type progressDisplayKey struct{}
+
+// Serialize progress redraws and interrupt notices on the same terminal.
+type progressDisplay struct {
+	sync.Mutex
+	lines int
+}
+
+func (d *progressDisplay) appendClear(dst []byte) []byte {
+	for i := 0; i < d.lines; i++ {
+		if i > 0 {
+			dst = append(dst, "\x1b[A"...)
+		}
+		dst = append(dst, "\r\x1b[2K"...)
+	}
+	d.lines = 0
+	return dst
+}
 
 type progressActivity struct {
 	directory string
@@ -26,6 +49,7 @@ type progress struct {
 	ctx          context.Context
 	started      time.Time
 	columns      int
+	display      *progressDisplay
 	done         chan struct{}
 	finished     chan struct{}
 }
@@ -42,6 +66,10 @@ func startProgress(ctx context.Context, writer io.Writer, label string, disabled
 		ctx:     ctx,
 		started: time.Now(), columns: terminalWidth(int(file.Fd())),
 		done: make(chan struct{}), finished: make(chan struct{}),
+	}
+	p.display, _ = ctx.Value(progressDisplayKey{}).(*progressDisplay)
+	if p.display == nil {
+		p.display = &progressDisplay{}
 	}
 	go p.render(file, label)
 	return p
@@ -69,32 +97,29 @@ func (p *progress) stop() {
 
 func (p *progress) render(writer *os.File, label string) {
 	defer close(p.finished)
-	defer writer.WriteString("\r\x1b[2K")
+	defer func() {
+		p.display.Lock()
+		defer p.display.Unlock()
+		var buffer [32]byte
+		writer.Write(p.display.appendClear(buffer[:0]))
+	}()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	frames := []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 	var storage [512]byte
 	buffer := storage[:0]
 	for frame := 0; ; frame++ {
-		buffer = append(buffer[:0], "\r\x1b[2K"...)
-		line := len(buffer)
+		p.display.Lock()
+		p.columns = terminalWidth(int(writer.Fd()))
+		buffer = p.display.appendClear(buffer[:0])
+		start := len(buffer)
 		buffer = utf8.AppendRune(buffer, frames[frame%len(frames)])
 		buffer = append(buffer, ' ')
 		buffer = p.appendStatus(buffer, label, time.Now())
-		if p.columns > 1 {
-			// Avoid wrapping and leaving old progress lines behind in narrow terminals.
-			column := 0
-			for i := line; i < len(buffer); {
-				if column == p.columns-1 {
-					buffer = buffer[:i]
-					break
-				}
-				_, size := utf8.DecodeRune(buffer[i:])
-				i += size
-				column++
-			}
-		}
+		buffer = append(buffer[:start], fitProgressLines(buffer[start:], p.columns)...)
 		writer.Write(buffer)
+		p.display.lines = 2
+		p.display.Unlock()
 		select {
 		case <-p.done:
 			return
@@ -103,8 +128,30 @@ func (p *progress) render(writer *os.File, label string) {
 	}
 }
 
+// Clip each line independently, keeping the last terminal column unused to avoid
+// automatic wrapping. Labels are sanitized before adding the line separator.
+func fitProgressLines(buffer []byte, columns int) []byte {
+	limit := max(columns-1, 0)
+	out, width := 0, 0
+	for i := 0; i < len(buffer); {
+		r, size := utf8.DecodeRune(buffer[i:])
+		i += size
+		if r == '\n' {
+			buffer[out] = '\n'
+			out++
+			width = 0
+			continue
+		}
+		w := runewidth.RuneWidth(r)
+		if width+w <= limit {
+			out += utf8.EncodeRune(buffer[out:], r)
+		}
+		width += w
+	}
+	return buffer[:out]
+}
+
 func (p *progress) appendStatus(dst []byte, label string, now time.Time) []byte {
-	start := len(dst)
 	elapsed := now.Sub(p.started).Round(100 * time.Millisecond)
 	if p.cleaning.Load() || p.ctx != nil && p.ctx.Err() != nil {
 		if p.cleaning.Load() {
@@ -112,20 +159,20 @@ func (p *progress) appendStatus(dst []byte, label string, now time.Time) []byte 
 		} else {
 			dst = append(dst, "Stopping"...)
 		}
-		dst = append(dst, " · "...)
+		dst = append(dst, "\n  "...)
 		return appendDuration(dst, elapsed)
 	}
 	started := p.cloneStarted.Load()
 	if started == nil {
-		dst = append(dst, label...)
-		dst = append(dst, " · "...)
+		dst = appendProgressLabel(dst, label)
+		dst = append(dst, "\n  "...)
 		return appendDuration(dst, elapsed)
 	}
 	activity := p.activity.Load()
 	if activity != nil && !activity.checking {
 		dst = append(dst, "Cloning directory "...)
-		dst = append(dst, activity.directory...)
-		dst = append(dst, " · "...)
+		dst = appendProgressLabel(dst, activity.directory)
+		dst = append(dst, "\n  "...)
 		return appendDuration(dst, elapsed)
 	}
 	count, total := p.entries.Load(), p.total.Load()
@@ -136,11 +183,13 @@ func (p *progress) appendStatus(dst []byte, label string, now time.Time) []byte 
 	filled := percent * 12 / 100
 	if activity != nil {
 		dst = append(dst, "Checking "...)
-		dst = append(dst, activity.directory...)
+		dst = appendProgressLabel(dst, activity.directory)
 	} else {
 		dst = append(dst, "Cloning"...)
 	}
-	dst = append(dst, " ["...)
+	dst = append(dst, '\n')
+	start := len(dst)
+	dst = append(dst, "  ["...)
 	for i := range 12 {
 		if i < filled {
 			dst = append(dst, "█"...)
@@ -187,7 +236,7 @@ func (p *progress) appendStatus(dst []byte, label string, now time.Time) []byte 
 			dst = appendDuration(dst, elapsed)
 		}
 		// The status is valid UTF-8. Count rune starts without copying it to a string.
-		columns := 2
+		columns := 0
 		for _, c := range dst[start:] {
 			if utf8.RuneStart(c) {
 				columns++
@@ -196,6 +245,16 @@ func (p *progress) appendStatus(dst []byte, label string, now time.Time) []byte 
 		if columns >= p.columns {
 			dst = dst[:end]
 		}
+	}
+	return dst
+}
+
+func appendProgressLabel(dst []byte, label string) []byte {
+	for _, r := range label {
+		if unicode.IsControl(r) {
+			r = '?'
+		}
+		dst = utf8.AppendRune(dst, r)
 	}
 	return dst
 }

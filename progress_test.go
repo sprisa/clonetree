@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
+
+	"github.com/mattn/go-runewidth"
 )
 
 func TestCloneProgressCountsContentOnce(t *testing.T) {
@@ -150,5 +154,98 @@ func TestProgressAcknowledgesStoppingAndCleanup(t *testing.T) {
 	status = string(p.appendStatus(nil, "Scanning source", time.Now()))
 	if !strings.Contains(status, "Removing partial clone") || strings.Contains(status, "ETA") {
 		t.Fatalf("cleanup phase was not shown: %q", status)
+	}
+}
+
+func TestProgressDetailsStayOnSecondLine(t *testing.T) {
+	p := &progress{started: time.Now(), columns: 80}
+	p.setTotal(400000)
+	p.entries.Store(200000)
+	p.bulk.Store(true)
+	now := p.cloneStarted.Load().Add(6 * time.Second)
+	var details string
+	for _, name := range []string{"short", strings.Repeat("react-native-pager-view@7.0.2_", 12)} {
+		p.activity.Store(&progressActivity{directory: name, checking: true})
+		status := string(p.appendStatus(nil, "Scanning source", now))
+		lines := strings.Split(status, "\n")
+		if len(lines) != 2 || lines[0] != "Checking "+name {
+			t.Fatalf("unexpected activity line: %q", status)
+		}
+		if !strings.HasPrefix(lines[1], "  [██████░░░░░░] 50% · 200000/400000 entries") {
+			t.Fatalf("missing second-line progress: %q", status)
+		}
+		if details != "" && lines[1] != details {
+			t.Fatalf("directory length changed progress details: %q != %q", lines[1], details)
+		}
+		details = lines[1]
+	}
+	p.activity.Store(&progressActivity{directory: "dependencies"})
+	status := string(p.appendStatus(nil, "Scanning source", now))
+	if !strings.HasPrefix(status, "Cloning directory dependencies\n  ") || strings.Contains(status, "%") {
+		t.Fatalf("native cloning should show timing below the activity, not a percentage: %q", status)
+	}
+}
+
+func TestProgressLinesFitTerminal(t *testing.T) {
+	for _, columns := range []int{1, 2, 20, 80, 120} {
+		for _, name := range []string{
+			strings.Repeat("long-dependency-name_", 20),
+			strings.Repeat("目录e\u0301", 40),
+			"directory\nwith\rterminal\tcontrols\x1b[2J",
+		} {
+			p := &progress{started: time.Now(), columns: columns}
+			p.setTotal(400000)
+			p.entries.Store(200000)
+			p.activity.Store(&progressActivity{directory: name, checking: true})
+			buffer := p.appendStatus([]byte("⠋ "), "Scanning source", time.Now())
+			status := string(fitProgressLines(buffer, columns))
+			lines := strings.Split(status, "\n")
+			if !utf8.ValidString(status) || len(lines) != 2 || strings.ContainsAny(status, "\r\t\x1b") {
+				t.Fatalf("invalid terminal status: %q", status)
+			}
+			for _, line := range lines {
+				if width := runewidth.StringWidth(line); width >= columns {
+					t.Fatalf("line uses %d columns in %d-column terminal: %q", width, columns, line)
+				}
+			}
+		}
+	}
+}
+
+func TestProgressRenderClearsBothLines(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	p := &progress{
+		started: time.Now(), display: &progressDisplay{},
+		done: make(chan struct{}), finished: make(chan struct{}),
+	}
+	close(p.done) // Render one frame, then clear it on shutdown.
+	p.render(writer, "Scanning source")
+	writer.Close()
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(output), "⠋ Scanning source\n  ") ||
+		!strings.HasSuffix(string(output), "\r\x1b[2K\x1b[A\r\x1b[2K") || p.display.lines != 0 {
+		t.Fatalf("progress did not clear both lines: %q", output)
+	}
+}
+
+func TestProgressFrameFormattingReusesBuffer(t *testing.T) {
+	p := &progress{started: time.Now(), columns: 80}
+	p.setTotal(400000)
+	p.activity.Store(&progressActivity{directory: strings.Repeat("long-dependency_", 12), checking: true})
+	now := time.Now()
+	var buffer [1024]byte
+	if allocations := testing.AllocsPerRun(100, func() {
+		status := p.appendStatus(buffer[:0], "Scanning source", now)
+		fitProgressLines(status, p.columns)
+	}); allocations != 0 {
+		t.Fatalf("progress frame allocated: %v", allocations)
 	}
 }
