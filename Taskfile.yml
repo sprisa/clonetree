@@ -39,7 +39,7 @@ tasks:
       - npx @sprisa/npmreleaser@latest build --publish
 
   update:homebrew:
-    desc: Update the local Homebrew formula using the published release checksums
+    desc: Update the local Homebrew formula using the published release checksums and bottles
     cmd: node scripts/update-homebrew.mjs "{{.HOMEBREW_TAP}}" "{{.RELEASE_REPO}}"
 
   release:
@@ -51,6 +51,7 @@ tasks:
         msg: "Not logged in to GitHub CLI. Run: gh auth login"
     cmds:
       - task: build:go
+      - node scripts/homebrew-bottles.mjs
       - task: publish:npm
       - ./scripts/release-notes.sh v{{.VERSION}} {{.RELEASE_REPO}} > ./dist/RELEASE_NOTES.md
       - >-

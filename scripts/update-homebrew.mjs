@@ -1,6 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, statSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 const [tap, repository = 'sprisa/clonetree'] = process.argv.slice(2);
 if (!tap || !statSync(tap).isDirectory()) {
@@ -21,6 +23,40 @@ for (const line of text.split('\n')) {
 }
 
 const base = `https://github.com/${repository}/releases/download/v${version}`;
+
+// Hash the published bottles (see scripts/homebrew-bottles.mjs), so the
+// formula always matches what Homebrew downloads.
+const bottleNames = JSON.parse(execFileSync('gh', [
+  'release', 'view', `v${version}`, '--repo', repository, '--json', 'assets',
+], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] })).assets
+  .map((asset) => asset.name)
+  .filter((name) => name.startsWith(`clonetree-${version}.`) && name.endsWith('.bottle.tar.gz'));
+const bottleDir = mkdtempSync(join(tmpdir(), 'clonetree-bottles-'));
+const bottles = [];
+try {
+  if (bottleNames.length > 0) {
+    execFileSync('gh', [
+      'release', 'download', `v${version}`, '--repo', repository, '--dir', bottleDir,
+      ...bottleNames.flatMap((name) => ['--pattern', name]),
+    ], { stdio: ['ignore', 'ignore', 'inherit'] });
+  }
+  for (const name of readdirSync(bottleDir)) {
+    const tag = name.slice(`clonetree-${version}.`.length, -'.bottle.tar.gz'.length);
+    const sha = createHash('sha256').update(readFileSync(join(bottleDir, name))).digest('hex');
+    bottles.push({ tag, sha });
+  }
+} finally {
+  rmSync(bottleDir, { recursive: true, force: true });
+}
+const platforms = [/^arm64_(?!linux$)/, /^(?!arm64_|x86_64_linux$)/, /^arm64_linux$/, /^x86_64_linux$/];
+const ordered = platforms.map((pattern) => bottles.filter(({ tag }) => pattern.test(tag)));
+if (ordered.some((matches) => matches.length !== 1)) {
+  throw new Error(`v${version} needs one bottle per platform, found: ${bottles.map(({ tag }) => tag).join(', ') || 'none'}. `
+    + '`task release` builds and uploads them.');
+}
+const bottleLines = ordered.flat()
+  .map(({ tag, sha }) => `    sha256 cellar: :any_skip_relocation, ${tag}: "${sha}"`)
+  .join('\n');
 function platform(os, arch) {
   const asset = `clonetree_${os}_${arch}.tar.gz`;
   const sha = checksums.get(asset);
@@ -38,6 +74,11 @@ class Clonetree < Formula
   homepage "https://github.com/${repository}"
   version "${version}"
   license "MPL-2.0"
+
+  bottle do
+    root_url "${base}"
+${bottleLines}
+  end
 
   on_macos do
     on_arm do
