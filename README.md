@@ -214,6 +214,9 @@ seconds to delete.
 Press **Ctrl+C again** to exit without waiting for cleanup. If a partial clone
 remains, remove it with `clonetree delete <id>` using the same `--dir` parent.
 
+`delete` stops on Ctrl+C too. The snapshot is then partly deleted; run the same
+`clonetree delete <id>` again to finish.
+
 ## Benchmark
 
 A **57.1 GiB** directory containing **320,652 files**, **59,778 directories**, and

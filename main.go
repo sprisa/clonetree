@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/urfave/cli/v3"
 )
@@ -140,15 +141,20 @@ func command() *cli.Command {
 						exists(filepath.Join(directory, projectSnapshots, id+treeSuffix)) {
 						directory, dir = filepath.Join(directory, projectSnapshots), filepath.Join(dir, projectSnapshots)
 					}
-					p := startProgress(ctx, cmd.Root().ErrWriter, "Deleting "+id, cmd.Bool("no-progress"))
-					defer p.stop()
-					if err := deleteTree(directory, id); err != nil {
+					var removed atomic.Uint64
+					view := startDeleteProgress(ctx, cmd.Root().ErrWriter, cmd.Bool("no-progress"), id,
+						filepath.Join(directory, id+treeSuffix), &removed)
+					err = deleteTree(ctx, directory, id, &removed)
+					view.stop()
+					if err != nil {
 						if errors.Is(err, fs.ErrNotExist) {
 							return fmt.Errorf("no snapshot %s in %s (see clonetree ls)", id, dir)
 						}
+						if ctx.Err() != nil && removed.Load() > 0 {
+							printf(cmd.Root().ErrWriter, "%s\n", styleMuted.Render(id+" is partly deleted. Run clonetree delete "+id+" to finish."))
+						}
 						return err
 					}
-					p.stop()
 					printSuccess(cmd.Root().Writer, "Deleted "+id, filepath.Join(dir, id+treeSuffix))
 					return nil
 				},

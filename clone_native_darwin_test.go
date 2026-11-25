@@ -139,7 +139,7 @@ func TestNativeDirectoryClonePreservesContentAndMetadata(t *testing.T) {
 	if read(t, file) != string(data) {
 		t.Fatal("native directory clone edit changed the original")
 	}
-	if err := deleteTree(filepath.Join(root, "outputs"), "copy"); err != nil {
+	if err := deleteTree(context.Background(), filepath.Join(root, "outputs"), "copy", nil); err != nil {
 		t.Fatal(err)
 	}
 }

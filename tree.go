@@ -8,7 +8,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -293,7 +295,9 @@ func preserveMetadata(path string, info fileMetadata) error {
 	return os.Chtimes(path, info.modified, info.modified)
 }
 
-func deleteTree(root, id string) error {
+// deleteTree removes the snapshot id from root. removed, if not nil, counts
+// entries as they are deleted. Cancelling ctx stops partway.
+func deleteTree(ctx context.Context, root, id string, removed *atomic.Uint64) error {
 	if !validID(id) {
 		return errors.New("invalid clonetree ID")
 	}
@@ -305,10 +309,36 @@ func deleteTree(root, id string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("%s%s is not a directory", id, treeSuffix)
 	}
-	return removeTree(path)
+	return removeTreeContext(ctx, path, removed)
 }
 
+// APFS serializes much of directory modification: past about four workers,
+// contention costs more than it saves (see PERFORMANCE.md).
+func removeWorkers() int {
+	return min(runtime.GOMAXPROCS(0), 4)
+}
+
+// removeTree removes path and everything under it. A missing path is not an
+// error. It runs to completion: cleanup must finish even after cancellation.
 func removeTree(path string) error {
+	return removeTreeContext(context.Background(), path, nil)
+}
+
+// removeTreeContext removes path with parallel workers. If that fails for any
+// reason other than cancellation, the serial path takes over, so unusual
+// entries never leave a snapshot half-deleted.
+func removeTreeContext(ctx context.Context, path string, removed *atomic.Uint64) error {
+	err := removeTreeParallel(ctx, path, removeWorkers(), removed)
+	if err == nil || errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return removeTreeSerial(path)
+}
+
+func removeTreeSerial(path string) error {
 	// Most clones are writable. Let RemoveAll finish those in one streaming
 	// pass; only revisit leftovers when copied directory permissions block it.
 	err := os.RemoveAll(path)
