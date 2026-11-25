@@ -42,6 +42,19 @@ type helpSection struct {
 const projectNote = "--dir may name the project or its clonetree/ folder."
 
 var commandDocs = map[string]commandDoc{
+	"completion": {
+		summary: "Print a script that completes clonetree's commands, options, and snapshot IDs in bash, zsh, or fish.",
+		examples: [][2]string{
+			{"echo 'source <(clonetree completion zsh)' >> ~/.zshrc", ""},
+			{`echo 'eval "$(clonetree completion bash)"' >> ~/.bashrc`, ""},
+			{"clonetree completion fish > ~/.config/fish/completions/clonetree.fish", ""},
+		},
+		sections: []helpSection{{title: "Good to know", bullets: []string{
+			"Homebrew installs completions for bash, zsh, and fish automatically.",
+			"clonetree delete completes your snapshot IDs, honoring --dir.",
+			"Open a new shell after setting it up.",
+		}}},
+	},
 	"init": {
 		summary: "Add *.clonetree/ to this directory's .gitignore, so snapshots stay out of Git.",
 		examples: [][2]string{
@@ -129,7 +142,7 @@ var commandDocs = map[string]commandDoc{
 func commandHelpText(cmd *cli.Command, width int) []string {
 	doc := commandDocs[cmd.Name]
 	bold := styleBold
-	title := bold.Render("clonetree " + cmd.Name)
+	title := bold.Render(cmd.FullName())
 	if cmd.ArgsUsage != "" {
 		title += " " + cmd.ArgsUsage
 	}
@@ -144,6 +157,15 @@ func commandHelpText(cmd *cli.Command, width int) []string {
 	wrap := min(max(width-1, 40), 80)
 	lines := []string{title}
 	lines = append(lines, strings.Split(ansi.Wordwrap(summary, wrap, ""), "\n")...)
+
+	if subcommands := cmd.VisibleCommands(); len(subcommands) > 0 {
+		lines = append(lines, "", bold.Render("Commands"))
+		var rows [][2]string
+		for _, c := range subcommands {
+			rows = append(rows, [2]string{c.Name, c.Usage})
+		}
+		lines = append(lines, twoColumns(rows, bold)...)
+	}
 
 	if len(doc.examples) > 0 {
 		lines = append(lines, "", bold.Render("Examples"))

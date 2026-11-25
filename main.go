@@ -36,6 +36,9 @@ func command() *cli.Command {
 		Name:    "clonetree",
 		Usage:   "Copy your repo, node_modules and all, in seconds. Only changes take up disk space.",
 		Version: strings.TrimSpace(embeddedVersion),
+		// clonetree completion <shell> prints a completion script; see help.
+		EnableShellCompletion:           true,
+		ConfigureShellCompletionCommand: configureCompletion,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "dir",
@@ -123,9 +126,10 @@ func command() *cli.Command {
 				Action: showInfo,
 			},
 			{
-				Name:      "delete",
-				Usage:     "Remove a snapshot and its changes",
-				ArgsUsage: "<id>",
+				Name:          "delete",
+				Usage:         "Remove a snapshot and its changes",
+				ArgsUsage:     "<id>",
+				ShellComplete: completeSnapshotIDs,
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					if err := arguments(cmd, 1); err != nil {
 						return err

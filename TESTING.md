@@ -94,6 +94,9 @@ bash docs/demo/record.sh
 - Parallel removal deletes read-only directories and files, never follows
   symlinks, counts every entry, and stops when cancelled; cleanup still
   finishes without a context.
+- Shell completion scripts print for every shell; the bash script works
+  without the bash-completion package; delete completes snapshot IDs through
+  --dir, including a project folder.
 - `clonetree`, `help`, and `--help` show the overview with plain ASCII art when
   output has no color; the art sits beside the text, shrinks to an icon, or is
   hidden as the terminal narrows, and never pushes the text down.

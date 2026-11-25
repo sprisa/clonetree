@@ -205,6 +205,21 @@ clonetree --no-progress new experiment
 Non-interactive runs disable progress and colors automatically; `NO_COLOR` is
 respected too. Progress is written to stderr, results to stdout.
 
+### Shell completions
+
+Tab-complete commands, options, and snapshot IDs (for `delete`, honoring
+`--dir`). Homebrew installs completions for bash, zsh, and fish automatically.
+Otherwise, add the line for your shell and open a new one:
+
+```sh
+echo 'source <(clonetree completion zsh)' >> ~/.zshrc
+echo 'eval "$(clonetree completion bash)"' >> ~/.bashrc
+clonetree completion fish > ~/.config/fish/completions/clonetree.fish
+```
+
+Bash completion works with or without the bash-completion package, including
+macOS's bash 3.2.
+
 ### Stop a running command
 
 Press **Ctrl+C** to cancel. Clonetree acknowledges the request immediately and
