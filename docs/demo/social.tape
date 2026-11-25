@@ -5,7 +5,9 @@ Set Width 1280
 Set Height 640
 Set FontSize 20
 
-Source docs/demo/theme.tape
+Source docs/demo/terminal.tape
+Source docs/demo/light.tape
+Source docs/demo/enter.tape
 
 Hide
 Type "clear; banner"
