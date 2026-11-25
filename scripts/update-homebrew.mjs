@@ -100,6 +100,7 @@ ${platform('Linux', 'x86_64')}
 
   def install
     bin.install "clonetree"
+    generate_completions_from_executable(bin/"clonetree", "completion")
   end
 
   test do
