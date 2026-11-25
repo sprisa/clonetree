@@ -14,7 +14,8 @@ trap 'chmod -R u+w "$CLONETREE_DEMO" 2>/dev/null; rm -rf "$CLONETREE_DEMO"' EXIT
 mkdir -p "$CLONETREE_DEMO/bin" "$CLONETREE_DEMO/home"
 cat >"$CLONETREE_DEMO/env.sh" <<'SH'
 export HOME="$CLONETREE_DEMO/home" PATH="$CLONETREE_DEMO/bin:$PATH" COLORTERM=truecolor
-PS1="\[$(tput setaf 8)\]~/acme-app \[$(tput setaf 2)\]❯\[$(tput sgr0)\] "
+# zsh prompt: theme colors 8 (path) and 2 (arrow).
+PROMPT='%F{8}~/acme-app %F{2}❯%f '
 cd "$CLONETREE_DEMO/acme-app"
 banner() {
 	printf '\n\033[1;38;2;75;60;50mclonetree\033[0m\n\033[38;2;101;116;93mCopy your repo, node_modules and all, in seconds.\033[0m\n\033[38;2;128;107;88mOnly changes take up disk space.\033[0m\n\n'
