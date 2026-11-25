@@ -30,7 +30,10 @@ starting from the files on disk rather than a commit.
 In our [APFS benchmark](#benchmark), a **57.1 GiB checkout** with **320,652 files**
 cloned in **9.9 seconds** on average.
 
-<img src="docs/assets/demo.gif" alt="Terminal recording: clonetree shows its overview beside the logo, clonetree new my-feature clones a 2.9 GiB project in about four seconds, clonetree ls lists five snapshots instantly, and clonetree info measures them with a live progress bar per snapshot." width="800">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/demo-dark.gif">
+  <img src="docs/assets/demo.gif" alt="Terminal recording: clonetree shows its overview beside the logo, clonetree new my-feature clones a 2.9 GiB project in about four seconds, clonetree ls lists five snapshots instantly, and clonetree info measures them with a live progress bar per snapshot." width="800">
+</picture>
 
 **Requires macOS with APFS, or Linux with reflink-enabled XFS/Btrfs.** Source and
 destination must be on the same filesystem. No Git repository is required.
@@ -304,3 +307,5 @@ discover the original parent repository.
 | Logo and social-preview artwork | [Brand assets](docs/BRANDING.md) |
 
 Licensed under [MPL 2.0](LICENSE).
+
+<img src="https://analytics.sprisa.com/p/Asts1wWV5" alt="" width="1" height="1">

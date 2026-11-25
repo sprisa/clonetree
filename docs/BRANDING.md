@@ -23,7 +23,8 @@ is what makes it read as two trees sharing. Earlier rounds are in
 | [Social preview source](assets/social-preview.svg) | SVG | 1280 × 640 |
 | [Social preview export](assets/social-preview.png) | PNG | 1280 × 640 |
 | [Terminal social preview](assets/social-terminal.png) | PNG (VHS) | 1280 × 640 |
-| [README demo](assets/demo.gif) | GIF (VHS) | 1200 × 840 |
+| [README demo, light](assets/demo.gif) | GIF (VHS) | 1200 × 840 |
+| [README demo, dark](assets/demo-dark.gif) | GIF (VHS) | 1200 × 840 |
 
 ## Social preview
 
@@ -53,7 +54,8 @@ read at thumbnail size.
 
 The README demo and the terminal social preview are recorded with
 [VHS](https://github.com/charmbracelet/vhs) using a terminal theme in this
-palette ([`docs/demo/theme.tape`](demo/theme.tape)). To re-record both after a UI
+palette, in light ([`docs/demo/light.tape`](demo/light.tape)) and dark
+([`docs/demo/dark.tape`](demo/dark.tape)) themes. To re-record them after a UI
 change:
 
 ```sh
