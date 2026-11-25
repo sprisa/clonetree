@@ -80,7 +80,14 @@ func newTree(ctx context.Context, root, directory, id string, report *progress) 
 			if report != nil {
 				report.cleaning.Store(true)
 			}
-			err = errors.Join(err, removeTree(destination))
+			cleanupErr := removeTree(destination)
+			if cleanupErr == nil && ctx.Err() != nil {
+				// Cancelled and fully cleaned up: report the cancellation alone,
+				// not the operation it interrupted.
+				err = ctx.Err()
+			} else {
+				err = errors.Join(err, cleanupErr)
+			}
 		}
 	}()
 	plan, err := prepareClonePlan(ctx, root)

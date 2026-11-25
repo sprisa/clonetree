@@ -99,7 +99,7 @@ func TestCommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output, "→") || !strings.Contains(output, " in ") || !strings.Contains(output, "clonetree/feature_1.clonetree") {
+	if !strings.Contains(output, "Cloned ") || !strings.Contains(output, " in ") || !strings.Contains(output, "clonetree/feature_1.clonetree") {
 		t.Fatalf("missing size/time summary: %s", output)
 	}
 	if strings.ContainsAny(output, "\r\x1b") {

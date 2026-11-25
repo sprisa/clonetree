@@ -1,2 +1,4 @@
 *.clonetree/
 dist/
+docs/demo/.frames/
+docs/demo/.social.gif

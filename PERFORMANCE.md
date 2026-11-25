@@ -63,21 +63,54 @@ metadata.
 
 ### Size listing
 
-This workload contains 57.1 GiB of file data, 320,399 regular files, 59,685
-directories, and 16,875 symlinks. Results are means of two runs per command.
+`info` walks every snapshot to calculate live sizes. It measures all snapshots
+concurrently with a shared pool of six directory readers. Readers prefer the first
+unfinished snapshot and move to later ones only when it has no directories ready,
+so rows finish in order while the total work stays the same. Child directories
+are opened relative to their parent's descriptor.
 
-| Command | Wall time | Process CPU time | Peak RSS |
-| --- | ---: | ---: | ---: |
-| `info` | 2.447s | 2.430s | 13.320 MiB |
-| `info --skip-private-size` | 1.927s | 1.900s | 13.164 MiB |
+Measured November 24, 2026, on an Apple M4 Max with 128 GiB RAM and macOS 27.2.1:
+10 snapshots of a local monorepo, **4.83 million entries** and 527 GiB of logical
+file data in total. Commands ran with `--no-progress`, with warm caches.
 
-`info` calculates live logical sizes and APFS private storage for every entry.
-Private storage can change when another clone or the original is modified or
-deleted, even if this clone is untouched.
+| Command | Before (sequential) | After (concurrent) | Process CPU after | Peak RSS after |
+| --- | ---: | ---: | ---: | ---: |
+| `info` | 120–126s | **17.8–18.7s** | 58.5–65.5s | 21.6 MiB |
+| `info --size-only` | 69.2s | **13.5–13.7s** | 41.2–42.5s | 22.7 MiB |
 
-`--skip-private-size` omits the private-storage queries and the `PRIVATE` column.
-It still scans the files to calculate `SIZE`. In this measurement it used about
-22% less process CPU time.
+The concurrent walk uses more total CPU: most of `getattrlistbulk`'s work on APFS
+runs under kernel locks, and contention grows with the number of readers. Sweeping
+the reader count on the same workload (disk usage included):
+
+| Readers | Wall time | System CPU |
+| ---: | ---: | ---: |
+| 1 (previous sequential walk) | 120–126s | 36–37s |
+| 4 | 22.7s | 47s |
+| 6 | 17.8–18.4s | 58–59s |
+| 8 | 17.3–18.3s | 90–93s |
+| 12 | 28.5s | 273s |
+| 16 | 34.7–36.0s | 429–445s |
+
+Six readers is the knee: eight is no faster and costs half again as much CPU.
+Beyond that, wall time gets worse as well. Opening child directories relative to
+their parents did not change these numbers; the contention is inside the
+metadata reads themselves.
+
+`--size-only` omits the APFS private-size queries behind `DISK USED` and `SAVED`.
+It still scans the files to calculate logical size.
+
+`list` (`ls`) reads only the snapshot directory itself and returns immediately,
+regardless of snapshot size.
+
+### Live progress estimates
+
+Interactive `info` runs record each snapshot's entry count in the user cache
+directory (`~/Library/Caches/clonetree/entries.json` on macOS,
+`$XDG_CACHE_HOME/clonetree/entries.json` on Linux). The next interactive run uses
+those counts as the denominator for per-snapshot progress bars, capped at 99%
+until a snapshot actually finishes. Snapshots without a previous count show a
+live entry count instead. Sizes are always measured live; the cache only drives
+the progress display, and an unreadable cache just means no percentages.
 
 ## Filesystem operations
 
@@ -154,7 +187,8 @@ filesystem and measure each command:
 BENCH=$(mktemp -d "${TMPDIR:-/tmp}/clonetree-bench.XXXXXX")
 /usr/bin/time -l /tmp/clonetree --dir "$BENCH" --no-progress new sample
 /usr/bin/time -l /tmp/clonetree --dir "$BENCH" --no-progress info
-/usr/bin/time -l /tmp/clonetree --dir "$BENCH" --no-progress info --skip-private-size
+/usr/bin/time -l /tmp/clonetree --dir "$BENCH" --no-progress info --size-only
+/usr/bin/time -l /tmp/clonetree --dir "$BENCH" list
 /tmp/clonetree --dir "$BENCH" --no-progress delete sample
 rmdir "$BENCH"
 ```

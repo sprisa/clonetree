@@ -1,46 +1,81 @@
 # Clonetree brand assets
 
-The logo uses sage and clay geometric canopies with fine trunk-and-branch lines.
-A continuing main stem gains a new side branch.
+The logo is two outlined pines, sage and burnt orange. Where they overlap, the
+colors multiply like overprinted inks into a solid brown, and where their
+outlines cross, the lines overprint too: two copies sharing storage. The
+palette comes from a 1970s print: cream, burnt orange, and sage.
 
-<img src="assets/clonetree.svg" alt="Clonetree: geometric canopies with fine tree branches and a new side branch" width="160" height="160">
+<img src="assets/clonetree.svg" alt="Clonetree logo: two outlined pines, sage and orange, overlapping in solid brown" width="160" height="160">
+
+The mark uses only mid-tone colors, so the transparent version works on light
+and dark backgrounds. Use a tile where the mark needs a shape of its own, such
+as app icons and avatars. Keep the two pines in their own colors; the overlap
+is what makes it read as two trees sharing. Earlier rounds are in
+[logo explorations](assets/logo-explorations/README.md).
 
 ## Files
 
 | Asset | Format | Dimensions |
 | --- | --- | --- |
-| [Logo source](assets/clonetree.svg) | SVG | 256 × 256 |
-| [Logo export](assets/clonetree.png) | PNG | 512 × 512 |
+| [Logo](assets/clonetree.svg) ([PNG](assets/clonetree.png)) | SVG, transparent | 256 × 256 (PNG 512 × 512) |
+| [Logo on dark tile](assets/clonetree-tile-dark.svg) ([PNG](assets/clonetree-tile-dark.png)) | SVG | 256 × 256 (PNG 512 × 512) |
+| [Logo on cream tile](assets/clonetree-tile-light.svg) ([PNG](assets/clonetree-tile-light.png)) | SVG | 256 × 256 (PNG 512 × 512) |
 | [Social preview source](assets/social-preview.svg) | SVG | 1280 × 640 |
 | [Social preview export](assets/social-preview.png) | PNG | 1280 × 640 |
+| [Terminal social preview](assets/social-terminal.png) | PNG (VHS) | 1280 × 640 |
+| [README demo](assets/demo.gif) | GIF (VHS) | 1200 × 840 |
 
 ## Social preview
 
-![Clonetree social preview: Clone your checkout. Share its storage.](assets/social-preview.png)
+![Clonetree social preview: Copy your repo, node_modules and all. Only changes take up disk.](assets/social-preview.png)
 
 Upload `social-preview.png` under GitHub repository **Settings → General →
 Social preview → Edit → Upload an image**.
 
-The preview references `clonetree.svg`. Its overlapping workspace tiles illustrate
-the checkout and its clone.
+The preview references `clonetree-tile-dark.svg`. Beside the headline, a dark terminal
+window shows real output: a clone finishing in seconds, then `clonetree info`
+with each clone's disk use and the space saved. Keep its text large enough to
+read at thumbnail size.
 
 ## Palette
 
 | Color | Hex | Role |
 | --- | --- | --- |
-| Ink | `#4B3C32` | Wordmark, headings, and logo stem |
-| Sepia | `#806B58` | Supporting text and side-canopy branches |
-| Sage | `#A7B7A0` | Primary canopy |
-| Deep sage | `#65745D` | Accent text and primary-canopy branches |
-| Clay | `#D6AB91` | Side-branch canopy |
-| Warm white | `#F8F7F3` | Background and logo disc |
+| Sage | `#7D9473` | Logo pine; progress bars and success in the CLI |
+| Burnt orange | `#D2551F` | Logo pine; headline accent; suggested commands in the CLI |
+| Cream | `#F1E6CF` | Light logo tile |
+| Multiply brown | `#67310E` | Logo overlap: sage × burnt orange |
+| Charcoal | `#2B2420` | Headings, dark logo tile, terminal windows |
+| Sepia | `#806B58` | Supporting text |
+| Warm white | `#F8F7F3` | Page background |
+
+## Terminal recordings
+
+The README demo and the terminal social preview are recorded with
+[VHS](https://github.com/charmbracelet/vhs) using a terminal theme in this
+palette ([`docs/demo/theme.tape`](demo/theme.tape)). To re-record both after a UI
+change:
+
+```sh
+brew install vhs
+bash docs/demo/record.sh
+```
+
+The script builds clonetree, creates a sample project with installed
+dependencies in a temporary directory (`go run ./docs/demo/fixture`), and
+removes it afterwards. It also checks the recorded frames for layout jumps; see
+[Testing](../TESTING.md#ui-layout-tests).
+
+The CLI uses the palette's mid-tones, which stay legible on light and dark
+terminals: sage for progress and success, burnt orange for suggested commands,
+and neutral gray `#8C8C8C` for secondary text.
 
 ## Typography and layout
 
 Use **Sofia Pro**, with Helvetica Neue, Helvetica, and Arial as fallbacks.
 Headlines are medium-weight with slightly tightened spacing; supporting text is
-regular-weight and sentence case. Use generous whitespace, flat pastel
-illustrations, and fine dividers.
+regular-weight and sentence case. Use generous whitespace, flat colors, and fine
+dividers. Show the product through real terminal output.
 
 ## Copy
 
@@ -56,8 +91,11 @@ With [librsvg](https://gitlab.gnome.org/GNOME/librsvg) installed
 repository root:
 
 ```sh
-rsvg-convert -w 512 -h 512 docs/assets/clonetree.svg -o docs/assets/clonetree.png
-rsvg-convert docs/assets/social-preview.svg -o docs/assets/social-preview.png
+cd docs/assets
+for name in clonetree clonetree-tile-dark clonetree-tile-light; do
+  rsvg-convert -w 512 -h 512 "$name.svg" -o "$name.png"
+done
+rsvg-convert social-preview.svg -o social-preview.png
 ```
 
 Keep the SVG sources together when rendering. Regenerate the PNGs after changing

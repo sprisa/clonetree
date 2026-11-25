@@ -1,13 +1,24 @@
 name: Test
 
 on:
+  # Pull request branches are tested by pull_request alone; testing them on
+  # push too doubled every run, and macOS runners are scarce.
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+# A newer push to a pull request replaces its run in progress. Runs on main are
+# never cancelled, so every commit there is tested.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   linux:
     name: Linux XFS and Btrfs e2e
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Load native filesystem drivers
@@ -20,6 +31,7 @@ jobs:
   macos:
     name: macOS APFS e2e
     runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

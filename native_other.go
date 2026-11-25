@@ -39,3 +39,7 @@ func privateSize(path string) (uint64, bool) {
 func privateSizeAt(fd int, path string) (uint64, bool) {
 	return 0, false
 }
+
+func openDirectoryAt(parent *os.File, name, path string) (*os.File, error) {
+	return os.Open(path)
+}

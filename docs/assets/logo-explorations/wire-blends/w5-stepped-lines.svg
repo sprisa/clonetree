@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
+  <defs><mask id="fl" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256"><polygon points="112,40 184,200 40,200" fill="#fff"/></mask><mask id="fr" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256"><polygon points="144,40 216,200 72,200" fill="#fff"/></mask><mask id="sl" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256"><polygon points="112,40 184,200 40,200" fill="#000" stroke="#fff" stroke-width="13" stroke-linejoin="round"/></mask><mask id="sr" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256"><polygon points="144,40 216,200 72,200" fill="#000" stroke="#fff" stroke-width="13" stroke-linejoin="round"/></mask></defs>
+  <g mask="url(#fl)"><g mask="url(#fr)"><rect x="0" y="76" width="256" height="5" fill="#868E6B"/><rect x="0" y="84" width="256" height="5" fill="#8A8B66"/><rect x="0" y="92" width="256" height="5" fill="#8E8762"/><rect x="0" y="100" width="256" height="5" fill="#92845E"/><rect x="0" y="108" width="256" height="5" fill="#96815A"/><rect x="0" y="116" width="256" height="5" fill="#9B7E56"/><rect x="0" y="124" width="256" height="5" fill="#9F7B51"/><rect x="0" y="132" width="256" height="5" fill="#A3784D"/><rect x="0" y="140" width="256" height="5" fill="#A87449"/><rect x="0" y="148" width="256" height="5" fill="#AC7145"/><rect x="0" y="156" width="256" height="5" fill="#B06E41"/><rect x="0" y="164" width="256" height="5" fill="#B46B3C"/><rect x="0" y="172" width="256" height="5" fill="#B86838"/><rect x="0" y="180" width="256" height="5" fill="#BD6534"/><rect x="0" y="188" width="256" height="5" fill="#C16230"/><rect x="0" y="196" width="256" height="5" fill="#C55E2C"/><rect x="0" y="204" width="256" height="5" fill="#CA5B27"/></g></g>
+  <g stroke-width="13" stroke-linejoin="round">
+    <polygon points="112,40 184,200 40,200" stroke="#7D9473"/>
+    <polygon points="144,40 216,200 72,200" stroke="#D2551F"/>
+  </g>
+  <g mask="url(#sl)"><g mask="url(#sr)"><rect width="256" height="256" fill="#7D551F"/></g></g>
+  <rect x="118" y="206" width="10" height="26" fill="#7D9473"/>
+  <rect x="128" y="206" width="10" height="26" fill="#D2551F"/>
+</svg>

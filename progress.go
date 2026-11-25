@@ -3,41 +3,20 @@ package main
 import (
 	"context"
 	"io"
-	"os"
-	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
-	"github.com/mattn/go-runewidth"
+	progressbar "charm.land/bubbles/v2/progress"
+	tea "charm.land/bubbletea/v2"
 )
-
-type progressDisplayKey struct{}
-
-// Serialize progress redraws and interrupt notices on the same terminal.
-type progressDisplay struct {
-	sync.Mutex
-	lines int
-}
-
-func (d *progressDisplay) appendClear(dst []byte) []byte {
-	for i := 0; i < d.lines; i++ {
-		if i > 0 {
-			dst = append(dst, "\x1b[A"...)
-		}
-		dst = append(dst, "\r\x1b[2K"...)
-	}
-	d.lines = 0
-	return dst
-}
 
 type progressActivity struct {
 	directory string
 	checking  bool
 }
 
+// progress is the shared state of a running clone or delete. Workers update it
+// with atomics; the live view samples it on each frame.
 type progress struct {
 	entries      atomic.Uint64
 	bytes        atomic.Uint64
@@ -48,30 +27,20 @@ type progress struct {
 	cleaning     atomic.Bool
 	ctx          context.Context
 	started      time.Time
-	columns      int
-	display      *progressDisplay
-	done         chan struct{}
-	finished     chan struct{}
+	live         *live
 }
 
+const progressBarWidth = 24
+
 func startProgress(ctx context.Context, writer io.Writer, label string, disabled bool) *progress {
-	if disabled {
+	if disabled || !isTerminalWriter(writer) {
 		return nil
 	}
-	file, ok := writer.(*os.File)
-	if !ok || !isTerminal(int(file.Fd())) {
-		return nil
-	}
-	p := &progress{
-		ctx:     ctx,
-		started: time.Now(), columns: terminalWidth(int(file.Fd())),
-		done: make(chan struct{}), finished: make(chan struct{}),
-	}
-	p.display, _ = ctx.Value(progressDisplayKey{}).(*progressDisplay)
-	if p.display == nil {
-		p.display = &progressDisplay{}
-	}
-	go p.render(file, label)
+	p := &progress{ctx: ctx, started: time.Now()}
+	bar := newBar(progressBarWidth)
+	p.live = startLive(ctx, writer, false, func(now time.Time, _ int) liveFrame {
+		return p.frame(label, now, bar)
+	})
 	return p
 }
 
@@ -87,174 +56,71 @@ func (p *progress) add(size uint64) {
 }
 
 func (p *progress) stop() {
-	if p == nil || p.done == nil {
-		return
-	}
-	close(p.done)
-	<-p.finished
-	p.done = nil
-}
-
-func (p *progress) render(writer *os.File, label string) {
-	defer close(p.finished)
-	defer func() {
-		p.display.Lock()
-		defer p.display.Unlock()
-		var buffer [32]byte
-		writer.Write(p.display.appendClear(buffer[:0]))
-	}()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	frames := []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-	var storage [512]byte
-	buffer := storage[:0]
-	for frame := 0; ; frame++ {
-		p.display.Lock()
-		p.columns = terminalWidth(int(writer.Fd()))
-		buffer = p.display.appendClear(buffer[:0])
-		start := len(buffer)
-		buffer = utf8.AppendRune(buffer, frames[frame%len(frames)])
-		buffer = append(buffer, ' ')
-		buffer = p.appendStatus(buffer, label, time.Now())
-		buffer = append(buffer[:start], fitProgressLines(buffer[start:], p.columns)...)
-		writer.Write(buffer)
-		p.display.lines = 2
-		p.display.Unlock()
-		select {
-		case <-p.done:
-			return
-		case <-ticker.C:
-		}
+	if p != nil {
+		p.live.stop()
 	}
 }
 
-// Clip each line independently, keeping the last terminal column unused to avoid
-// automatic wrapping. Labels are sanitized before adding the line separator.
-func fitProgressLines(buffer []byte, columns int) []byte {
-	limit := max(columns-1, 0)
-	out, width := 0, 0
-	for i := 0; i < len(buffer); {
-		r, size := utf8.DecodeRune(buffer[i:])
-		i += size
-		if r == '\n' {
-			buffer[out] = '\n'
-			out++
-			width = 0
-			continue
-		}
-		w := runewidth.RuneWidth(r)
-		if width+w <= limit {
-			out += utf8.EncodeRune(buffer[out:], r)
-		}
-		width += w
+// frame renders two lines with a fixed layout: the phase on the first, and on
+// the second a bar, percentage, and counters that never change position. During
+// scanning and native directory clones the bar simply holds still.
+func (p *progress) frame(label string, now time.Time, bar progressbar.Model) liveFrame {
+	headline, details, fraction, known := p.status(label, now)
+	content := spinnerFrame(p.started, now) + " " + headline + "\n  " +
+		barView(bar, fraction) + " " + percentText(fraction) + dot + details
+	terminal := tea.NewProgressBar(tea.ProgressBarIndeterminate, 0)
+	if known {
+		terminal = tea.NewProgressBar(tea.ProgressBarDefault, int(fraction*100))
 	}
-	return buffer[:out]
+	return liveFrame{content: content, progress: terminal}
 }
 
-func (p *progress) appendStatus(dst []byte, label string, now time.Time) []byte {
-	elapsed := now.Sub(p.started).Round(100 * time.Millisecond)
-	if p.cleaning.Load() || p.ctx != nil && p.ctx.Err() != nil {
-		if p.cleaning.Load() {
-			dst = append(dst, "Removing partial clone"...)
-		} else {
-			dst = append(dst, "Stopping"...)
-		}
-		dst = append(dst, "\n  "...)
-		return appendDuration(dst, elapsed)
-	}
-	started := p.cloneStarted.Load()
-	if started == nil {
-		dst = appendProgressLabel(dst, label)
-		dst = append(dst, "\n  "...)
-		return appendDuration(dst, elapsed)
-	}
-	activity := p.activity.Load()
-	if activity != nil && !activity.checking {
-		dst = append(dst, "Cloning directory "...)
-		dst = appendProgressLabel(dst, activity.directory)
-		dst = append(dst, "\n  "...)
-		return appendDuration(dst, elapsed)
-	}
+// status describes the current phase. fraction is the share of entries checked;
+// known is false until the total is counted.
+func (p *progress) status(label string, now time.Time) (headline, details string, fraction float64, known bool) {
+	elapsed := styleMuted.Render(stopwatch(now.Sub(p.started)))
 	count, total := p.entries.Load(), p.total.Load()
-	percent := 100
-	if total != 0 && count < total {
-		percent = int(float64(count) / float64(total) * 100)
-	}
-	filled := percent * 12 / 100
-	if activity != nil {
-		dst = append(dst, "Checking "...)
-		dst = appendProgressLabel(dst, activity.directory)
-	} else {
-		dst = append(dst, "Cloning"...)
-	}
-	dst = append(dst, '\n')
-	start := len(dst)
-	dst = append(dst, "  ["...)
-	for i := range 12 {
-		if i < filled {
-			dst = append(dst, "█"...)
-		} else {
-			dst = append(dst, "░"...)
+	started := p.cloneStarted.Load()
+	if started != nil {
+		known, fraction = true, 1
+		if total != 0 && count < total {
+			fraction = float64(count) / float64(total)
 		}
 	}
-	dst = append(dst, "] "...)
-	dst = strconv.AppendInt(dst, int64(percent), 10)
-	dst = append(dst, "% · "...)
-	dst = strconv.AppendUint(dst, count, 10)
-	dst = append(dst, '/')
-	dst = strconv.AppendUint(dst, total, 10)
-	dst = append(dst, " entries"...)
+	if p.cleaning.Load() {
+		return styleBold.Render("Removing partial clone"),
+			styleMuted.Render("Press Ctrl+C again to exit without waiting") + dot + elapsed, fraction, known
+	}
+	if p.ctx != nil && p.ctx.Err() != nil {
+		return styleBold.Render("Stopping"),
+			styleMuted.Render("Press Ctrl+C again to exit without cleanup") + dot + elapsed, fraction, known
+	}
+	if started == nil {
+		return styleBold.Render(safeText(label)), styleMuted.Render("Counting entries") + dot + elapsed, 0, false
+	}
+	switch activity := p.activity.Load(); {
+	case activity == nil:
+		headline = styleBold.Render("Cloning")
+	case activity.checking:
+		headline = styleBold.Render("Checking ") + styleMuted.Render(safeText(activity.directory))
+	default:
+		headline = styleBold.Render("Cloning ") + styleMuted.Render(safeText(activity.directory))
+	}
+	details = styleMuted.Render(groupedCount(min(count, max(total, count))) + "/" + groupedCount(total) + " entries")
 	if !p.bulk.Load() {
 		rate := float64(0)
 		if seconds := now.Sub(*started).Seconds(); seconds > 0 {
 			rate = float64(count) / seconds
 		}
-		remaining := total - min(count, total)
-		dst = append(dst, " · "...)
-		dst = appendCount(dst, rate)
-		dst = append(dst, "/s · ETA "...)
-		switch {
+		eta := "--"
+		switch remaining := total - min(count, total); {
 		case remaining == 0:
-			dst = append(dst, "0s"...)
-		case rate <= 0:
-			dst = append(dst, "--"...)
-		default:
-			duration := time.Duration(float64(remaining) / rate * float64(time.Second))
-			if duration < time.Second {
-				dst = append(dst, "<1s"...)
-			} else {
-				dst = appendDuration(dst, duration.Round(time.Second))
-			}
+			eta = "0s"
+		case rate > 0:
+			eta = etaString(time.Duration(float64(remaining) / rate * float64(time.Second)))
 		}
+		details += dot + styleMuted.Render(countString(rate)+"/s") + dot + styleMuted.Render("ETA "+eta)
 	}
-	for i := range 2 {
-		end := len(dst)
-		dst = append(dst, " · "...)
-		if i == 0 {
-			dst = appendBytes(dst, p.bytes.Load())
-		} else {
-			dst = appendDuration(dst, elapsed)
-		}
-		// The status is valid UTF-8. Count rune starts without copying it to a string.
-		columns := 0
-		for _, c := range dst[start:] {
-			if utf8.RuneStart(c) {
-				columns++
-			}
-		}
-		if columns >= p.columns {
-			dst = dst[:end]
-		}
-	}
-	return dst
-}
-
-func appendProgressLabel(dst []byte, label string) []byte {
-	for _, r := range label {
-		if unicode.IsControl(r) {
-			r = '?'
-		}
-		dst = utf8.AppendRune(dst, r)
-	}
-	return dst
+	details += dot + styleMuted.Render(bytesString(p.bytes.Load())) + dot + elapsed
+	return headline, details, fraction, known
 }

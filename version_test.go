@@ -22,7 +22,7 @@ func TestVersionOutput(t *testing.T) {
 		}
 	}
 	output, err := runCLI(t, "--help")
-	if err != nil || !strings.Contains(output, "VERSION:") || !strings.Contains(output, want) {
+	if err != nil || !strings.HasPrefix(output, "clonetree "+want+"\n") {
 		t.Fatalf("help omitted version %s: %q, %v", want, output, err)
 	}
 }

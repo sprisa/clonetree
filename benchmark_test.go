@@ -87,18 +87,18 @@ func BenchmarkTreeSize(b *testing.B) {
 	}
 }
 
-var benchmarkStatus []byte
+var benchmarkFrame liveFrame
 
-func BenchmarkProgressStatus(b *testing.B) {
-	p := &progress{started: time.Now(), columns: 120}
+func BenchmarkProgressFrame(b *testing.B) {
+	p := &progress{started: time.Now()}
 	p.setTotal(223000)
 	p.entries.Store(123000)
 	p.bytes.Store(20 << 30)
 	now := p.cloneStarted.Load().Add(30 * time.Second)
-	buffer := make([]byte, 0, 512)
+	bar := newBar(progressBarWidth)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		benchmarkStatus = p.appendStatus(buffer[:0], "Counting entries", now)
+		benchmarkFrame = p.frame("Counting entries", now, bar)
 	}
 }

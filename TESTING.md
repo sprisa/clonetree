@@ -55,17 +55,53 @@ bash e2e/macos.sh
 This uses a temporary directory on the host and verifies it is APFS. APFS tests
 run directly on macOS; there is no Linux-container APFS job.
 
+## UI layout tests
+
+Live progress is tested the way a person sees it. `TestLiveLayoutIsStable` (in
+the e2e suites above) runs `new`, `info`, and `ls` in a pseudo-terminal, replays
+the output through a terminal emulator
+([`charmbracelet/x/vt`](https://github.com/charmbracelet/x/tree/main/vt)), and
+snapshots the screen whenever output pauses. Across every frame it checks that:
+
+- each progress bar keeps its column and width, and never disappears while its
+  row is still running;
+- `DISK USED`, `SAVED`, and `FULL COPY` values stay right-aligned under their headers, whether a
+  row is waiting, running, or done;
+- running timers always show tenths (`19.9s`, `20.0s`);
+- live frames never reach the last terminal column, where terminals wrap.
+
+The sample project comes from [`internal/demotree`](internal/demotree), with
+tiny files so it fits the 1 GiB Linux test images.
+
+The README recording is checked with the same rules. `docs/demo/record.sh`
+records text frames alongside the GIF (VHS `Output *.txt`, sampled every 100ms
+during live views) and rejects the recording if `TestRecordedFramesAreStable`
+finds a jump:
+
+```sh
+brew install vhs
+bash docs/demo/record.sh
+```
+
 ## Coverage
 
-- Built CLI subprocesses: `init`, `new`, `info`, and `delete`.
+- Built CLI subprocesses: `init`, `new`, `info`, and `delete`; `list`/`ls` in-process.
+- Concurrent size measurement matches a sequential walk for any reader count, and
+  errors are attributed to the right snapshot. `ls` never reads snapshot contents.
+- Live `info` rows resolve independently (finished, estimated, counting, waiting),
+  and entry-count estimates round-trip through the cache.
+- Live frames fit narrow terminals; the stopwatch always shows tenths.
+- `clonetree`, `help`, and `--help` show the overview with plain ASCII art when
+  output has no color; the art sits beside the text, shrinks to an icon, or is
+  hidden as the terminal narrows, and never pushes the text down.
 - Default/custom destinations, current-directory semantics, and multiple read batches.
 - Hidden/ignored files, VCS metadata, Unicode names, permissions, times, and symlinks.
 - APFS native-directory eligibility, set-ID/BSD-flag fallback, timestamp restoration,
   hardlink independence, late exclusions, and cancellation after a native clone.
-- `info --skip-private-size` omits private accounting while keeping live logical sizes.
+- `info --size-only` (and the old `--skip-private-size`) skips disk-usage accounting while keeping live logical sizes.
 - Immediate interrupt acknowledgement, second-interrupt exit, cleanup status, and
   native-batch progress without a per-file ETA.
-- Shared extents on XFS/Btrfs (`filefrag`), and low initial private usage on APFS.
-- Independent edits in both directions; APFS private storage grows when the original changes.
+- Shared extents on XFS/Btrfs (`filefrag`), and low initial disk usage on APFS.
+- Independent edits in both directions; APFS disk used grows when the original changes.
 - Existing IDs and symlink protection, excluded snapshots, and failed-clone cleanup.
 - Cross-filesystem cloning fails instead of falling back to a full copy.
