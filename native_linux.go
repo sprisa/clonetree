@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
+	"sync"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -70,11 +72,71 @@ func freeSpace(path string) (uint64, error) {
 	return stat.Bavail * uint64(stat.Bsize), err
 }
 
+// privateSize is the storage only path uses: its unshared extents. st_blocks
+// and du count shared reflink extents too, so FIEMAP's shared flags are used
+// instead. Only regular files hold extents; directories and symlinks count as
+// zero.
 func privateSize(path string) (uint64, bool) {
-	// st_blocks/du include shared reflink extents, so they cannot tell us this.
-	return 0, false
+	info, err := os.Lstat(path)
+	if err != nil {
+		return 0, false
+	}
+	return privateSizeOf(unix.AT_FDCWD, metadataFromInfo(info))
 }
 
-func privateSizeAt(fd int, path string) (uint64, bool) {
-	return 0, false
+func privateSizeAt(dirfd int, name string) (uint64, bool) {
+	var stat unix.Stat_t
+	if err := unix.Fstatat(dirfd, name, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		return 0, false
+	}
+	if stat.Mode&unix.S_IFMT != unix.S_IFREG {
+		return 0, true
+	}
+	return unsharedExtents(dirfd, name, uint64(stat.Size))
+}
+
+func privateSizeOf(dirfd int, entry fileMetadata) (uint64, bool) {
+	if !entry.mode.IsRegular() {
+		return 0, true
+	}
+	return unsharedExtents(dirfd, entry.name, uint64(max(entry.size, 0)))
+}
+
+// fsIocFiemap is FS_IOC_FIEMAP, _IOWR('f', 11, struct fiemap), which
+// golang.org/x/sys/unix does not export. It is the same on amd64 and arm64.
+const fsIocFiemap = 0xC020660B
+
+var fiemapBuffers = sync.Pool{New: func() any {
+	return new([fiemapHeaderSize + fiemapBatch*fiemapExtentSize]byte)
+}}
+
+// unsharedExtents sums the extents of a regular file that no other file
+// shares. It reports false where FIEMAP is unsupported or the file cannot be
+// opened, so the measurement shows as unavailable rather than wrong.
+func unsharedExtents(dirfd int, name string, size uint64) (uint64, bool) {
+	fd, err := unix.Openat(dirfd, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return 0, false
+	}
+	defer unix.Close(fd)
+	storage := fiemapBuffers.Get().(*[fiemapHeaderSize + fiemapBatch*fiemapExtentSize]byte)
+	defer fiemapBuffers.Put(storage)
+	buf := storage[:]
+	var total, start uint64
+	for {
+		fiemapRequest(buf, start)
+		_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), fsIocFiemap, uintptr(unsafe.Pointer(&buf[0])))
+		if errno == unix.EINTR {
+			continue
+		}
+		if errno != 0 {
+			return 0, false
+		}
+		unshared, next, done := fiemapUnshared(buf, size)
+		total += unshared
+		if done || next <= start {
+			return total, true
+		}
+		start = next
+	}
 }

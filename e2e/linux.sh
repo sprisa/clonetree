@@ -53,6 +53,16 @@ trap 'exit 143' TERM
 
 # Format fresh regular files only. mount's loop option uses auto-clearing loop
 # devices, released when these private mounts are unmounted.
+#
+# A container's /dev holds a fixed set of loop nodes; other workloads on the
+# same VM can occupy them all. Add nodes until two are free (the kernel creates
+# the devices on demand).
+next_loop=$(ls /dev/loop[0-9]* 2>/dev/null | sed 's#/dev/loop##' | sort -n | tail -1)
+next_loop=$(( ${next_loop:--1} + 1 ))
+while (( $(losetup -a | wc -l) + 2 > $(ls /dev/loop[0-9]* 2>/dev/null | wc -l) )); do
+  mknod -m 660 "/dev/loop$next_loop" b 7 "$next_loop"
+  next_loop=$((next_loop + 1))
+done
 for filesystem in xfs btrfs; do
   image="$work/$filesystem.img"
   directory="$work/$filesystem"

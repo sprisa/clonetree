@@ -108,6 +108,9 @@ bash docs/demo/record.sh
 - Immediate interrupt acknowledgement, second-interrupt exit, cleanup status, and
   native-batch progress without a per-file ETA.
 - Shared extents on XFS/Btrfs (`filefrag`), and low initial disk usage on APFS.
-- Independent edits in both directions; APFS disk used grows when the original changes.
+- Independent edits in both directions; DISK USED starts near zero for a fresh
+  clone and grows when the original changes, on APFS, XFS, and Btrfs.
+- FIEMAP replies: shared extents are left out, batches continue from the last
+  extent, and malformed counts are clamped.
 - Existing IDs and symlink protection, excluded snapshots, and failed-clone cleanup.
 - Cross-filesystem cloning fails instead of falling back to a full copy.

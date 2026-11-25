@@ -170,10 +170,12 @@ release-2-4              0 B     100%      2.9 GiB
 | `SAVED` | The share of `FULL COPY` the clone doesn't use. |
 | `FULL COPY` | The clone's logical file size: what an ordinary copy would take. |
 
-`DISK USED` comes from APFS, which calls it private size. It doesn't include
-each clone's own file metadata (inodes and directory entries), so a fresh clone
-can show `0 B` while `new` reports tens of MiB added on disk. On Linux, XFS and
-Btrfs don't report it, and the column shows `n/a`.
+On macOS, `DISK USED` comes from APFS, which calls it private size. On Linux,
+it adds up each file's extents that XFS or Btrfs reports as not shared with
+another file (`FIEMAP`). Either way it doesn't include each clone's own file
+metadata (inodes and directory entries), so a fresh clone can show `0 B` while
+`new` reports tens of MiB added on disk. On Btrfs with compression, it counts
+uncompressed sizes. Filesystems that report neither show `n/a`.
 
 Snapshots are measured concurrently. In a terminal, each row resolves as soon as
 its snapshot is measured, while the rest show a progress bar, size so far, and
@@ -181,7 +183,7 @@ elapsed time. Percentages are estimated from the entry counts of your previous
 interactive `info` run (kept in the user cache directory); a snapshot without a
 previous count shows a live entry count instead.
 
-Measuring `DISK USED` asks APFS about every file. When you only need logical
+Measuring `DISK USED` asks the filesystem about every file. When you only need logical
 sizes, skip that work to use less CPU:
 
 ```sh

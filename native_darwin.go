@@ -46,6 +46,11 @@ func privateSize(path string) (uint64, bool) {
 	return privateSizeAt(unix.AT_FDCWD, path)
 }
 
+// privateSizeOf is APFS's private size for an entry in an open directory.
+func privateSizeOf(fd int, entry fileMetadata) (uint64, bool) {
+	return privateSizeAt(fd, entry.name)
+}
+
 func privateSizeAt(fd int, path string) (uint64, bool) {
 	name, err := unix.BytePtrFromString(path)
 	if err != nil {

@@ -47,11 +47,16 @@ func verifyShared(t *testing.T, root, source, clone string, size int) {
 			t.Fatalf("file extents are not shared for %s: %v\n%s", path, err, output)
 		}
 	}
+	// info agrees: a fresh clone uses almost no storage of its own.
+	if private := privateUsage(t, root); private >= float64(size)/2 {
+		t.Fatalf("fresh clone reports %v bytes of disk used", private)
+	}
 }
 
 func verifyPrivateGrowth(t *testing.T, root string, size int) {
-	// Linux's CLI intentionally reports n/a rather than counting shared blocks.
-	if output := success(t, root, "info"); !strings.Contains(output, "n/a") {
-		t.Fatalf("Linux private size should be unavailable: %s", output)
+	t.Helper()
+	// Rewriting the original leaves the clone's extents unshared.
+	if private := privateUsage(t, root); private < float64(size)/2 {
+		t.Fatalf("clone did not retain the original's overwritten data: %v bytes of disk used", private)
 	}
 }

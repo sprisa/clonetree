@@ -40,6 +40,10 @@ func privateSizeAt(fd int, path string) (uint64, bool) {
 	return 0, false
 }
 
+func privateSizeOf(fd int, entry fileMetadata) (uint64, bool) {
+	return 0, false
+}
+
 func openDirectoryAt(parent *os.File, name, path string) (*os.File, error) {
 	return os.Open(path)
 }

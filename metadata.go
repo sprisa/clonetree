@@ -48,7 +48,7 @@ func readDirectoryStandard(ctx context.Context, dir *os.File, wantPrivate bool, 
 			}
 			entry := metadataFromInfo(info)
 			if wantPrivate {
-				entry.private, entry.privateKnown = privateSizeAt(fd, entry.name)
+				entry.private, entry.privateKnown = privateSizeOf(fd, entry)
 			}
 			if err := visit(fd, entry); err != nil {
 				return err
