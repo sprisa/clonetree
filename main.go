@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
-	"text/tabwriter"
-	"time"
 
 	"github.com/urfave/cli/v3"
 )
@@ -20,7 +20,12 @@ func main() {
 	ctx, stop := interruptContext(os.Stderr)
 	defer stop()
 	if err := command().Run(ctx, os.Args); err != nil {
-		fmt.Fprintln(os.Stderr, "clonetree:", err)
+		if err == context.Canceled {
+			printf(os.Stderr, "%s\n", styleMuted.Render("Cancelled."))
+			stop()
+			os.Exit(130)
+		}
+		newErrorLogger(os.Stderr).Error(err)
 		os.Exit(1)
 	}
 }
@@ -28,42 +33,24 @@ func main() {
 func command() *cli.Command {
 	return &cli.Command{
 		Name:    "clonetree",
-		Usage:   "Copy-on-write snapshots of the current directory",
+		Usage:   "Copy your repo, node_modules and all, in seconds. Only changes take up disk space.",
 		Version: strings.TrimSpace(embeddedVersion),
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "dir",
 				Aliases: []string{"d"},
 				Value:   "clonetree",
-				Usage:   "Parent directory for snapshots used by new, info, and delete",
+				Usage:   "Snapshot folder",
 			},
 			&cli.BoolFlag{
 				Name:  "no-progress",
-				Usage: "Disable live progress",
+				Usage: "Plain output, without live progress",
 			},
 		},
-		Description: `Clones the current working directory, including hidden files, ignored files,
-installed dependencies, and any .git or .sl metadata. Snapshots are created as
-clonetree/<id>.clonetree/ by default. Use --dir to choose a different parent
-directory (relative to the current directory, or absolute). The source is always
-the current directory; no repository is required. Directories ending in
-.clonetree are excluded at every depth.
-
-VCS metadata is copied as-is. Linked/shared stores and absolute metadata paths
-remain external references. Cloning a subdirectory does not create a new VCS
-checkout: Git or Sapling may still discover the original parent repository.
-
-Requires APFS on macOS or a reflink-capable Linux filesystem (XFS/Btrfs).
-Uses native cloning only: no full-copy fallback. Ext4 is unsupported.
-Symlinks retain their original targets, including absolute paths.
-Storage grows as either checkout changes; clones keep old data alive even if
-it is changed or deleted in the original.
-Stop writers while cloning: this is not an atomic directory-wide snapshot.
-VCS operations in progress and lock files are copied without modification.`,
 		Commands: []*cli.Command{
 			{
 				Name:  "init",
-				Usage: "Add *.clonetree/ to .gitignore in the current directory",
+				Usage: "Add *.clonetree/ to .gitignore",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					if err := arguments(cmd, 0); err != nil {
 						return err
@@ -75,29 +62,16 @@ VCS operations in progress and lock files are copied without modification.`,
 					if err := initProject(root); err != nil {
 						return err
 					}
-					fmt.Fprintf(cmd.Root().Writer, "Ready: %s ignores %s\n", filepath.Join(root, ".gitignore"), ignorePattern)
+					w := cmd.Root().Writer
+					printSuccess(w, "Ready", ".gitignore ignores "+ignorePattern+" in "+displayPath(root))
+					printCommand(w, "clonetree new <id>")
 					return nil
 				},
 			},
 			{
 				Name:      "new",
-				Usage:     "Create an independent copy-on-write snapshot",
+				Usage:     "Clone this directory as <id>",
 				ArgsUsage: "<id>",
-				Description: `IDs contain letters, digits, hyphens or underscores and start with a letter
-or digit. Existing IDs are never overwritten. Permissions and modification times
-are preserved. Failed or cancelled clones are removed.
-
-Live progress is enabled when stderr is a terminal, unless --no-progress is set.
-On APFS it shows source scanning, the directory being cloned, and checked-entry
-progress. Native batches show elapsed time without a per-file rate or ETA.
-Other filesystems show per-entry progress and an estimated time remaining.
-
-Ctrl+C requests cancellation and partial-clone cleanup. A second Ctrl+C exits
-immediately without waiting for cleanup; use delete <id> if a partial clone remains.
-
-The disk-saving summary compares logical file size with the change in filesystem
-free space. Added disk usage is an estimate: other disk activity and delayed
-filesystem accounting can affect it. An unavailable estimate is never shown as zero.`,
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					if err := arguments(cmd, 1); err != nil {
 						return err
@@ -111,7 +85,6 @@ filesystem accounting can affect it. An unavailable estimate is never shown as z
 						return err
 					}
 					id := cmd.Args().First()
-					fmt.Fprintf(cmd.Root().Writer, "Cloning into %s…\n", filepath.Join(cmd.String("dir"), id+treeSuffix))
 					p := startProgress(ctx, cmd.Root().ErrWriter, "Scanning source", cmd.Bool("no-progress"))
 					defer p.stop()
 					result, err := newTree(ctx, root, directory, id, p)
@@ -123,15 +96,34 @@ filesystem accounting can affect it. An unavailable estimate is never shown as z
 					if result.Added != nil {
 						added = "~" + bytesString(*result.Added) + " added on disk (estimate)"
 					}
-					fmt.Fprintf(cmd.Root().Writer, "%s → %s in %s\n\n  cd %s\n",
-						bytesString(result.Logical), added, result.Elapsed.Round(time.Millisecond),
-						filepath.Join(directory, id+treeSuffix))
+					w := cmd.Root().Writer
+					printSuccess(w, "Cloned "+id+" in "+stopwatch(result.Elapsed),
+						bytesString(result.Logical)+" of files"+" · "+added)
+					printCommand(w, "cd "+displayPath(filepath.Join(directory, id+treeSuffix)))
 					return nil
 				},
 			},
 			{
+				Name:    "list",
+				Aliases: []string{"ls"},
+				Usage:   "List snapshots, instantly",
+				Action:  showList,
+			},
+			{
+				Name:  "info",
+				Usage: "Measure disk used and space saved",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:    "size-only",
+						Aliases: []string{"skip-private-size"},
+						Usage:   "Logical sizes only, using less CPU",
+					},
+				},
+				Action: showInfo,
+			},
+			{
 				Name:      "delete",
-				Usage:     "Remove a clonetree and all its local changes",
+				Usage:     "Remove a snapshot and its changes",
 				ArgsUsage: "<id>",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					if err := arguments(cmd, 1); err != nil {
@@ -141,40 +133,32 @@ filesystem accounting can affect it. An unavailable estimate is never shown as z
 					if err != nil {
 						return err
 					}
-					id := cmd.Args().First()
-					p := startProgress(ctx, cmd.Root().ErrWriter, "Deleting "+id+treeSuffix, cmd.Bool("no-progress"))
+					id, dir := cmd.Args().First(), cmd.String("dir")
+					// Like ls and info, accept the project folder: when the ID is not
+					// in --dir itself, use the project's clonetree/ folder.
+					if validID(id) && !exists(filepath.Join(directory, id+treeSuffix)) &&
+						exists(filepath.Join(directory, projectSnapshots, id+treeSuffix)) {
+						directory, dir = filepath.Join(directory, projectSnapshots), filepath.Join(dir, projectSnapshots)
+					}
+					p := startProgress(ctx, cmd.Root().ErrWriter, "Deleting "+id, cmd.Bool("no-progress"))
 					defer p.stop()
 					if err := deleteTree(directory, id); err != nil {
+						if errors.Is(err, fs.ErrNotExist) {
+							return fmt.Errorf("no snapshot %s in %s (see clonetree ls)", id, dir)
+						}
 						return err
 					}
 					p.stop()
-					fmt.Fprintf(cmd.Root().Writer, "Deleted %s\n", filepath.Join(cmd.String("dir"), id+treeSuffix))
+					printSuccess(cmd.Root().Writer, "Deleted "+id, filepath.Join(dir, id+treeSuffix))
 					return nil
 				},
-			},
-			{
-				Name:  "info",
-				Usage: "List snapshots in --dir and their storage usage",
-				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name:  "skip-private-size",
-						Usage: "Use less CPU by skipping APFS private-size queries; omit PRIVATE",
-					},
-				},
-				Description: `SIZE is logical file content. PRIVATE is storage not shared with another clone
-or filesystem snapshot, where the filesystem exposes it (APFS). It excludes
-filesystem-wide metadata overhead. Shared blocks are not counted as private.
-Unsupported measurements are shown as n/a. Sizes are scanned live.
-Use --skip-private-size to reduce CPU by omitting private-storage queries and the
-PRIVATE column. SIZE is still scanned live.`,
-				Action: showInfo,
 			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			if cmd.Args().Len() != 0 {
 				return fmt.Errorf("unknown command %q", cmd.Args().First())
 			}
-			return cli.ShowAppHelp(cmd)
+			return showRootHelp(cmd)
 		},
 	}
 }
@@ -186,59 +170,25 @@ func arguments(cmd *cli.Command, count int) error {
 	return nil
 }
 
+func exists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
+}
+
+// displayPath shows path relative to the current directory when it is inside it.
+func displayPath(path string) string {
+	if wd, err := os.Getwd(); err == nil {
+		if rel, err := filepath.Rel(wd, path); err == nil && rel != ".." && !strings.HasPrefix(rel, "../") {
+			return rel
+		}
+	}
+	return path
+}
+
 func snapshotDirectory(cmd *cli.Command) (string, error) {
 	directory := cmd.String("dir")
 	if directory == "" {
 		return "", fmt.Errorf("--dir must not be empty")
 	}
 	return filepath.Abs(directory)
-}
-
-func showInfo(ctx context.Context, cmd *cli.Command) error {
-	if err := arguments(cmd, 0); err != nil {
-		return err
-	}
-	directory, err := snapshotDirectory(cmd)
-	if err != nil {
-		return err
-	}
-	p := startProgress(ctx, cmd.Root().ErrWriter, "Measuring snapshots", cmd.Bool("no-progress"))
-	defer p.stop()
-	entries, err := os.ReadDir(directory)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	w := tabwriter.NewWriter(cmd.Root().Writer, 0, 4, 2, ' ', 0)
-	skipPrivateSize := cmd.Bool("skip-private-size")
-	if skipPrivateSize {
-		fmt.Fprintln(w, "ID\tSIZE")
-	} else {
-		fmt.Fprintln(w, "ID\tSIZE\tPRIVATE")
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() || !strings.HasSuffix(entry.Name(), treeSuffix) {
-			continue
-		}
-		size, err := treeSizeWithPrivate(ctx, filepath.Join(directory, entry.Name()), !skipPrivateSize)
-		if err != nil {
-			return fmt.Errorf("size of %s: %w", entry.Name(), err)
-		}
-		if skipPrivateSize {
-			fmt.Fprintf(w, "%s\t%s\n", strings.TrimSuffix(entry.Name(), treeSuffix), bytesString(size.Logical))
-			continue
-		}
-		private := "n/a"
-		if size.Private != nil {
-			private = bytesString(*size.Private)
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n", strings.TrimSuffix(entry.Name(), treeSuffix), bytesString(size.Logical), private)
-	}
-	p.stop()
-	if err := w.Flush(); err != nil {
-		return err
-	}
-	if !skipPrivateSize {
-		fmt.Fprintln(cmd.Root().Writer, "\nPRIVATE excludes shared blocks and filesystem metadata; n/a = unavailable.")
-	}
-	return nil
 }

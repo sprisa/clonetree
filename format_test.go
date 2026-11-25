@@ -1,19 +1,16 @@
 package main
 
-import (
-	"testing"
-	"time"
-)
+import "testing"
 
-func TestProgressDurationFormatting(t *testing.T) {
-	for _, d := range []time.Duration{
-		0, 100 * time.Millisecond, 1300 * time.Millisecond,
-		time.Minute, time.Minute + 1500*time.Millisecond,
-		time.Hour, time.Hour + 2*time.Minute + 3400*time.Millisecond,
-	} {
-		var buffer [64]byte
-		if got := string(appendDuration(buffer[:0], d)); got != d.String() {
-			t.Errorf("%v: got %q, want %q", d, got, d.String())
+func TestCountFormatting(t *testing.T) {
+	for n, want := range map[uint64]string{0: "0", 999: "999", 1000: "1,000", 400000: "400,000", 1234567: "1,234,567"} {
+		if got := groupedCount(n); got != want {
+			t.Errorf("%d: got %q, want %q", n, got, want)
+		}
+	}
+	for n, want := range map[float64]string{12: "12", 1500: "1.5k", 4100000: "4.1M"} {
+		if got := countString(n); got != want {
+			t.Errorf("%v: got %q, want %q", n, got, want)
 		}
 	}
 }

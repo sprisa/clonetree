@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="docs/assets/clonetree.svg" alt="Clonetree: geometric canopies with fine tree branches and a new side branch" width="128" height="128">
+  <img src="docs/assets/clonetree.svg" alt="Clonetree logo: two outlined pines, sage and orange, overlapping in solid brown" width="128" height="128">
   <h1>clonetree</h1>
-  <p><strong>Clone your checkout. Share its storage.</strong></p>
+  <p><strong>Copy your repo, node_modules and all, in seconds.<br>Only changes take up disk space.</strong></p>
   <p>Keep local edits, installed dependencies, and build output.</p>
   <p>
     <a href="#quick-start"><strong>Quick start</strong></a> ·
@@ -30,6 +30,8 @@ starting from the files on disk rather than a commit.
 In our [APFS benchmark](#benchmark), a **57.1 GiB checkout** with **320,652 files**
 cloned in **9.9 seconds** on average.
 
+<img src="docs/assets/demo.gif" alt="Terminal recording: clonetree shows its overview beside the logo, clonetree new my-feature clones a 2.9 GiB project in about four seconds, clonetree ls lists five snapshots instantly, and clonetree info measures them with a live progress bar per snapshot." width="800">
+
 **Requires macOS with APFS, or Linux with reflink-enabled XFS/Btrfs.** Source and
 destination must be on the same filesystem. No Git repository is required.
 
@@ -42,7 +44,7 @@ brew install sprisa/tap/clonetree
 # npm
 npx clonetree
 
-# Go 1.24+
+# Go 1.26+
 go run github.com/sprisa/clonetree@latest
 ```
 
@@ -64,10 +66,11 @@ cd clonetree/my-feature.clonetree
 repository or a snapshot; `new` does the cloning. Directories ending in
 `.clonetree` are skipped, so new snapshots don't contain your older ones.
 
-Back in the original directory, inspect or remove your workspace:
+Back in the original directory, list, measure, or remove your workspaces:
 
 ```sh
-clonetree info
+clonetree ls                 # Instant: IDs and paths
+clonetree info               # Measures sizes, with live progress per snapshot
 clonetree delete my-feature  # Removes the workspace, including its local changes
 ```
 
@@ -78,7 +81,7 @@ The equivalent commands:
 | What you want to do | Git worktree | clonetree |
 | --- | --- | --- |
 | Create a workspace | `git worktree add ../my-feature -b my-feature` | `clonetree new my-feature` |
-| List workspaces | `git worktree list` | `clonetree info` |
+| List workspaces | `git worktree list` | `clonetree ls` |
 | Remove a workspace | `git worktree remove ../my-feature` | `clonetree delete my-feature` |
 
 The important difference is **what you start with**:
@@ -112,11 +115,11 @@ read the [repository metadata details](#repository-metadata) below.
 ### Choose a snapshot directory
 
 The source is always your current directory. `--dir` (or `-d`) changes the parent
-directory used by `new`, `info`, and `delete`:
+directory used by `new`, `ls`, `info`, and `delete`:
 
 ```sh
 clonetree --dir ../workspaces new experiment
-clonetree --dir ../workspaces info
+clonetree --dir ../workspaces ls
 clonetree --dir ../workspaces delete experiment
 ```
 
@@ -124,31 +127,74 @@ This creates `../workspaces/experiment.clonetree/`. Relative paths are resolved
 from the current directory; use the same parent when listing or deleting. Use
 `--dir .` to create snapshots directly here instead of inside `./clonetree/`.
 
-### Inspect disk usage
+`ls`, `info`, and `delete` also accept the project folder: if `--dir` holds no
+snapshots itself, they use its `clonetree/` folder, just as running them from
+the project does. These are equivalent:
 
-`new` reports clone time and estimated additional disk usage. `info` scans your
-snapshots and shows their logical size and private storage where available:
+```sh
+clonetree --dir ~/code/my-app info
+clonetree --dir ~/code/my-app/clonetree info
+```
+
+`new` always creates directly in the folder you name.
+
+### List and measure snapshots
+
+`ls` (or `list`) prints snapshot IDs and paths immediately. It reads only the
+snapshot directory, not the snapshots themselves:
+
+```sh
+clonetree ls
+```
+
+`info` measures how much disk each clone uses, and how much cloning saved
+compared with an ordinary copy:
+
+```
+ID                 DISK USED    SAVED    FULL COPY
+hotfix-login        22.9 MiB    99.2%      2.9 GiB
+main                 9.1 MiB    99.6%      2.9 GiB
+my-feature               0 B     100%      2.9 GiB
+perf-experiment    171.7 MiB    94.5%      3.1 GiB
+release-2-4              0 B     100%      2.9 GiB
+
+5 snapshots · 203.6 MiB disk used · 14.6 GiB saved (98.6%) · measured in 2.0s
+```
 
 | Column | Meaning |
 | --- | --- |
-| `SIZE` | Logical file content, including data shared with other clones |
-| `PRIVATE` | Storage not shared with another clone or filesystem snapshot (APFS); `n/a` when unavailable |
+| `DISK USED` | Space only this clone takes, shared with no other clone, the original, or a filesystem snapshot. Deleting the clone frees roughly this much. |
+| `SAVED` | The share of `FULL COPY` the clone doesn't use. |
+| `FULL COPY` | The clone's logical file size: what an ordinary copy would take. |
 
-Measuring `PRIVATE` asks APFS how much file data is unshared. When you only need
-the `SIZE` column, skip that work to use less CPU:
+`DISK USED` comes from APFS, which calls it private size. It doesn't include
+each clone's own file metadata (inodes and directory entries), so a fresh clone
+can show `0 B` while `new` reports tens of MiB added on disk. On Linux, XFS and
+Btrfs don't report it, and the column shows `n/a`.
+
+Snapshots are measured concurrently. In a terminal, each row resolves as soon as
+its snapshot is measured, while the rest show a progress bar, size so far, and
+elapsed time. Percentages are estimated from the entry counts of your previous
+interactive `info` run (kept in the user cache directory); a snapshot without a
+previous count shows a live entry count instead.
+
+Measuring `DISK USED` asks APFS about every file. When you only need logical
+sizes, skip that work to use less CPU:
 
 ```sh
-clonetree info --skip-private-size
+clonetree info --size-only
 ```
 
-This shows `ID` and `SIZE`, omitting private-storage queries and the `PRIVATE`
-column. It still walks the files to calculate `SIZE`.
+This shows `ID` and `SIZE` (logical size). It still walks the files.
+
+`new` reports clone time and estimated additional disk usage.
 
 ### Control progress output
 
-Interactive runs show the current phase and elapsed time. APFS clones identify the
-directory being cloned and advance checked-entry progress during metadata
-validation. Per-file rates and ETAs are omitted for native batches.
+Interactive runs show the current phase and a running timer. APFS clones identify
+the directory being cloned and advance checked-entry progress during metadata
+validation. Per-file rates and ETAs are omitted for native batches. Terminals that
+support it (OSC 9;4) also show progress in the tab or dock.
 
 For plain output:
 
@@ -156,7 +202,8 @@ For plain output:
 clonetree --no-progress new experiment
 ```
 
-Non-interactive runs disable progress automatically.
+Non-interactive runs disable progress and colors automatically; `NO_COLOR` is
+respected too. Progress is written to stderr, results to stdout.
 
 ### Stop a running command
 
@@ -234,11 +281,11 @@ discover the original parent repository.
 ### Storage and consistency
 
 - Files share storage until either workspace changes. Old data stays allocated
-  while any clone needs it; a clone's private usage can grow when the original
+  while any clone needs it; a clone's disk usage can grow when the original
   changes or is deleted.
 - Added disk usage is estimated from filesystem free space. Other disk activity
   and delayed accounting can affect it.
-- Private storage excludes shared blocks and filesystem-wide metadata overhead.
+- `DISK USED` excludes shared blocks, file metadata, and filesystem-wide overhead.
   Measurements are scanned live, and unavailable values appear as `n/a`.
 - Cloning is not an atomic directory-wide snapshot. Stop writers and let VCS
   operations finish before cloning if you need a consistent starting point.
@@ -248,6 +295,7 @@ discover the original parent repository.
 | Looking for… | Start here |
 | --- | --- |
 | Commands and flags | `clonetree --help` or `clonetree <command> --help` |
+| Re-recording the README demo and social preview | [`docs/demo/record.sh`](docs/demo/record.sh) |
 | Runtime, memory use, and benchmark commands | [Performance](PERFORMANCE.md) |
 | Native APFS tests and XFS/Btrfs tests in Ubuntu Docker or a VM | [Testing](TESTING.md) |
 | Logo and social-preview artwork | [Brand assets](docs/BRANDING.md) |

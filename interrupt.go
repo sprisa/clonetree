@@ -10,6 +10,8 @@ import (
 	"syscall"
 )
 
+const showCursor = "\x1b[?25h"
+
 func interruptContext(writer io.Writer) (context.Context, func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	display := &progressDisplay{}
@@ -21,16 +23,27 @@ func interruptContext(writer io.Writer) (context.Context, func()) {
 		defer close(finished)
 		select {
 		case <-interrupts:
-			// Restore normal handling now, not after potentially slow cleanup.
-			// A second interrupt can therefore terminate the process immediately.
-			signal.Stop(interrupts)
 			display.Lock()
-			var buffer [32]byte
-			writer.Write(display.appendClear(buffer[:0]))
-			fmt.Fprintln(writer, "\nStopping... waiting for filesystem work and cleanup.")
-			fmt.Fprintln(writer, "Press Ctrl+C again to exit without waiting for cleanup.")
+			// A live view shows the stopping state itself.
+			if !display.active {
+				fmt.Fprintln(writer, "\nStopping... waiting for filesystem work and cleanup.")
+				fmt.Fprintln(writer, "Press Ctrl+C again to exit without waiting for cleanup.")
+			}
 			display.Unlock()
 			cancel()
+		case <-done:
+			return
+		}
+		select {
+		case <-interrupts:
+			// Exit without waiting for cleanup. A live view hides the cursor,
+			// so restore it before leaving the terminal to the shell.
+			display.Lock()
+			if display.active {
+				fmt.Fprint(writer, "\r\x1b[2K"+showCursor)
+			}
+			fmt.Fprintln(writer, "\nExited without waiting for cleanup.")
+			os.Exit(130)
 		case <-done:
 		}
 	}()

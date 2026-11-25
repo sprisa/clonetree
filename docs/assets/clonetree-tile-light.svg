@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">clonetree — shared pines on a cream tile</title>
+  <desc id="desc">Two outlined pines, sage and burnt orange, overlap. Where they overlap, the colors multiply like overprinted inks into a solid brown.</desc>
+  <defs>
+    <!-- Interiors and outlines of each pine, for drawing only where both overlap. -->
+    <mask id="sage-fill" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256"><polygon points="112,40 184,200 40,200" fill="#fff"/></mask>
+    <mask id="orange-fill" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256"><polygon points="144,40 216,200 72,200" fill="#fff"/></mask>
+    <mask id="sage-line" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256"><polygon points="112,40 184,200 40,200" stroke="#fff" stroke-width="13" stroke-linejoin="round"/></mask>
+    <mask id="orange-line" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256"><polygon points="144,40 216,200 72,200" stroke="#fff" stroke-width="13" stroke-linejoin="round"/></mask>
+  </defs>
+  <rect width="256" height="256" rx="58" fill="#F1E6CF"/>
+  <g transform="translate(25.6 25.6) scale(.8)">
+    <!-- Shared storage: sage multiplied by orange. -->
+    <g mask="url(#sage-fill)"><g mask="url(#orange-fill)"><rect width="256" height="256" fill="#67310E"/></g></g>
+    <g stroke-width="13" stroke-linejoin="round">
+      <polygon points="112,40 184,200 40,200" stroke="#7D9473"/>
+      <polygon points="144,40 216,200 72,200" stroke="#D2551F"/>
+    </g>
+    <!-- Where the outlines cross, they overprint too. -->
+    <g mask="url(#sage-line)"><g mask="url(#orange-line)"><rect width="256" height="256" fill="#67310E"/></g></g>
+    <rect x="118" y="206" width="10" height="26" fill="#7D9473"/>
+    <rect x="128" y="206" width="10" height="26" fill="#D2551F"/>
+  </g>
+</svg>

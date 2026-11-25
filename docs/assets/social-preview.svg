@@ -1,53 +1,74 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1280" height="640" viewBox="0 0 1280 640" fill="none" font-family="Sofia Pro, Helvetica Neue, Helvetica, Arial, sans-serif" role="img" aria-labelledby="title desc">
-  <title id="title">clonetree — Clone your checkout. Share its storage.</title>
-  <desc id="desc">A Sofia Pro preview with the Canopy modules logo, sepia text on warm white, and overlapping workspace tiles showing included local edits, dependencies, and build output.</desc>
+  <title id="title">clonetree — Copy your repo, node_modules and all, in seconds. Only changes take up disk space.</title>
+  <desc id="desc">The headline beside a dark terminal window: clonetree new clones a project in 3.5 seconds, and clonetree info shows each clone using almost no disk, with 99% saved.</desc>
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#2B2420" flood-opacity=".22"/>
+    </filter>
+  </defs>
   <rect width="1280" height="640" fill="#F8F7F3"/>
-  <image x="60" y="46" width="76" height="76" xlink:href="clonetree.svg"/>
-  <text x="147" y="100" fill="#4B3C32" font-size="40" font-weight="600" letter-spacing="-1.6">clonetree</text>
-  <g font-size="72" font-weight="500" letter-spacing="-2.6">
-    <text x="70" y="254" fill="#4B3C32">Clone your checkout.</text>
-    <text x="70" y="335" fill="#65745D">Share its storage.</text>
+
+  <!-- Brand and headline -->
+  <image x="66" y="58" width="60" height="60" xlink:href="clonetree-tile-dark.svg"/>
+  <text x="134" y="101" fill="#2B2420" font-size="34" font-weight="600" letter-spacing="-1.2">clonetree</text>
+  <g font-size="52" font-weight="600" letter-spacing="-2">
+    <text x="70" y="226" fill="#2B2420">Copy your repo,</text>
+    <text x="70" y="286" fill="#2B2420">node_modules</text>
+    <text x="70" y="346" fill="#2B2420">and all.</text>
+    <text x="70" y="406" fill="#D2551F">Only changes</text>
+    <text x="70" y="466" fill="#D2551F">take up disk.</text>
   </g>
-  <g fill="#806B58" font-size="22">
-    <text x="74" y="402">Local edits, dependencies, and build output included.</text>
-    <text x="74" y="438">Files share disk space until either copy changes.</text>
+  <g font-size="19" fill="#806B58">
+    <circle cx="76" cy="539" r="4" fill="#7D9473"/>
+    <text x="90" y="545">macOS + Linux</text>
+    <path d="M238 530V550" stroke="#DFDCD4"/>
+    <text x="256" y="545">APFS · XFS · Btrfs</text>
   </g>
-  <circle cx="78" cy="492" r="4" fill="#A7B7A0"/>
-  <text x="92" y="498" fill="#65745D" font-size="17">macOS + Linux</text>
-  <path d="M238 483V501" stroke="#DFDCD4"/>
-  <text x="258" y="498" fill="#806B58" font-size="17">APFS · XFS · Btrfs</text>
-  <g transform="rotate(-7 948 283)">
-    <rect x="832" y="153" width="232" height="260" rx="18" fill="#DEE5D8"/>
-    <text x="858" y="195" fill="#526148" font-size="20" font-weight="500" letter-spacing="-.35">current directory</text>
-    <path d="M858 218H1038" stroke="#BAC6B1"/>
-    <g fill="#BAC6B1">
-      <rect x="858" y="245" width="138" height="6" rx="3"/>
-      <rect x="858" y="265" width="154" height="6" rx="3"/>
-      <rect x="858" y="285" width="111" height="6" rx="3"/>
-      <rect x="858" y="327" width="138" height="6" rx="3"/>
-      <rect x="858" y="347" width="119" height="6" rx="3"/>
+  <text x="70" y="590" fill="#806B58" font-size="17">github.com/sprisa/clonetree</text>
+
+  <!-- Terminal -->
+  <g filter="url(#shadow)">
+    <rect x="530" y="58" width="684" height="528" rx="22" fill="#2B2420"/>
+  </g>
+  <rect x="530.5" y="58.5" width="683" height="527" rx="21.5" stroke="#4B3C32"/>
+  <g>
+    <circle cx="562" cy="90" r="7" fill="#E46B5D"/>
+    <circle cx="586" cy="90" r="7" fill="#E5B454"/>
+    <circle cx="610" cy="90" r="7" fill="#7D9473"/>
+  </g>
+  <g font-family="Menlo, SF Mono, Monaco, monospace" font-size="23" fill="#F8F7F3">
+    <text x="562" y="160"><tspan fill="#7D9473">❯</tspan> clonetree new my-feature</text>
+    <text x="562" y="198"><tspan fill="#7D9473" font-weight="700">✓</tspan> <tspan font-weight="700">Cloned my-feature in 3.5s</tspan></text>
+    <text x="590" y="234" fill="#A39686">2.9 GiB of files · ~88 MiB added</text>
+
+    <text x="562" y="300"><tspan fill="#7D9473">❯</tspan> clonetree info</text>
+    <g font-weight="700" fill="#A39686" font-size="19">
+      <text x="562" y="340">ID</text>
+      <text x="890" y="340" text-anchor="end">DISK USED</text>
+      <text x="1030" y="340" text-anchor="end">SAVED</text>
+      <text x="1184" y="340" text-anchor="end">FULL COPY</text>
     </g>
-  </g>
-  <g transform="rotate(5 1068 373)">
-    <rect x="941" y="244" width="254" height="258" rx="18" fill="#E9CDBD"/>
-    <text x="965" y="288" fill="#614B3C" font-size="20" font-weight="500" letter-spacing="-.35">my-feature.clonetree</text>
-    <path d="M965 309H1171" stroke="#D1AF99"/>
-    <g stroke="#9D7D66" stroke-width="1.3">
-      <rect x="965" y="329" width="10" height="13" rx="2"/>
-      <rect x="965" y="364" width="10" height="13" rx="2"/>
-      <rect x="965" y="399" width="10" height="13" rx="2"/>
+    <g font-weight="700">
+      <text x="562" y="378">my-feature</text>
+      <text x="562" y="414">hotfix-login</text>
+      <text x="562" y="450">main</text>
     </g>
-    <g fill="#725944" font-size="17">
-      <text x="986" y="342">Source + local edits</text>
-      <text x="986" y="377">Installed dependencies</text>
-      <text x="986" y="412">Build output</text>
+    <g text-anchor="end">
+      <text x="890" y="378">0 B</text>
+      <text x="890" y="414">22.9 MiB</text>
+      <text x="890" y="450">9.1 MiB</text>
     </g>
-    <path d="M965 443H1171" stroke="#D1AF99"/>
-    <text x="965" y="475" fill="#725944" font-size="14">Shared until files change</text>
-  </g>
-  <path d="M74 551H1208" stroke="#DFDCD4"/>
-  <g fill="#806B58" font-size="16">
-    <text x="74" y="591">github.com/sprisa/clonetree</text>
-    <text x="1208" y="591" text-anchor="end">Open source · MPL 2.0</text>
+    <g text-anchor="end" fill="#9CC08A" font-weight="700">
+      <text x="1030" y="378">100%</text>
+      <text x="1030" y="414">99.2%</text>
+      <text x="1030" y="450">99.6%</text>
+    </g>
+    <g text-anchor="end" fill="#A39686">
+      <text x="1184" y="378">2.9 GiB</text>
+      <text x="1184" y="414">2.9 GiB</text>
+      <text x="1184" y="450">2.9 GiB</text>
+    </g>
+    <path d="M562 486H1184" stroke="#4B3C32"/>
+    <text x="562" y="528" fill="#A39686">3 clones · <tspan fill="#9CC08A" font-weight="700">8.7 GiB saved (99.6%)</tspan></text>
   </g>
 </svg>

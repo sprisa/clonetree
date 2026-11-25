@@ -203,7 +203,7 @@ func TestCLI(t *testing.T) {
 	write(t, filepath.Join(root, "nested", "older.clonetree", "keep"), []byte("nested"))
 	write(t, filepath.Join(root, "ordinary.clonetree"), []byte("regular file"))
 	output := success(t, root, "new", "snapshot")
-	if !strings.Contains(output, "clonetree/snapshot.clonetree") || !strings.Contains(output, "→") || !strings.Contains(output, " in ") {
+	if !strings.Contains(output, "clonetree/snapshot.clonetree") || !strings.Contains(output, "Cloned ") || !strings.Contains(output, " in ") {
 		t.Fatalf("missing destination/size/time summary: %s", output)
 	}
 	tree := filepath.Join(root, "clonetree", "snapshot.clonetree")
@@ -260,7 +260,7 @@ func TestCLI(t *testing.T) {
 		t.Fatal("editing the clone changed the original")
 	}
 	info := success(t, root, "info", "--no-progress")
-	if !strings.Contains(info, "snapshot") || !strings.Contains(info, "PRIVATE") {
+	if !strings.Contains(info, "snapshot") || !strings.Contains(info, "DISK USED") {
 		t.Fatalf("info did not list the snapshot: %s", info)
 	}
 	success(t, root, "delete", "snapshot", "--no-progress")
