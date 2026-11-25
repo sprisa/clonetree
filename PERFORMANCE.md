@@ -102,6 +102,34 @@ It still scans the files to calculate logical size.
 `list` (`ls`) reads only the snapshot directory itself and returns immediately,
 regardless of snapshot size.
 
+### Deletion
+
+`delete` removes a snapshot with four parallel workers. Workers take
+directories, unlink their files relative to the open directory, and remove each
+directory once everything inside it is gone. Cleanup after a cancelled or
+failed `new` uses the same path. If parallel removal hits anything unexpected,
+the serial `os.RemoveAll` path finishes the job.
+
+Measured November 25, 2026, on the same machine: a fresh APFS clone of a sample
+project with 254,000 files (`go run ./docs/demo/fixture`, 900 packages), one
+fresh clone per run, two runs each.
+
+| Removal | Wall time |
+| --- | ---: |
+| `os.RemoveAll` (previous) | 13.1–13.2s |
+| 1 worker | 13.2–13.3s |
+| 2 workers | 8.9–9.0s |
+| 3 workers | 6.7–6.8s |
+| **4 workers** | **6.2–6.8s** |
+| 5 workers | 6.4s |
+| 6 workers | 6.8–7.1s |
+| 8 workers | 7.7–8.1s |
+| 16 workers | 12.2–12.7s |
+
+As with reads, APFS serializes much of the work, and contention outweighs the
+gain past four workers. End to end, `clonetree --no-progress delete` on that
+clone takes 6.1–6.2s, down from 12.4–12.5s.
+
 ### Live progress estimates
 
 Interactive `info` runs record each snapshot's entry count in the user cache

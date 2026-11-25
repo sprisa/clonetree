@@ -187,6 +187,7 @@ func TestLiveLayoutIsStable(t *testing.T) {
 		t.Fatal("info with estimates showed no progress bar")
 	}
 	record("ls")
+	record("delete", "two") // Live count with an estimate from the info runs above.
 }
 
 // TestRecordedFramesAreStable checks text frames written by VHS (Output *.txt),

@@ -91,6 +91,9 @@ bash docs/demo/record.sh
 - Live `info` rows resolve independently (finished, estimated, counting, waiting),
   and entry-count estimates round-trip through the cache.
 - Live frames fit narrow terminals; the stopwatch always shows tenths.
+- Parallel removal deletes read-only directories and files, never follows
+  symlinks, counts every entry, and stops when cancelled; cleanup still
+  finishes without a context.
 - `clonetree`, `help`, and `--help` show the overview with plain ASCII art when
   output has no color; the art sits beside the text, shrinks to an icon, or is
   hidden as the terminal narrows, and never pushes the text down.

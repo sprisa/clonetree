@@ -124,3 +124,41 @@ func (p *progress) status(label string, now time.Time) (headline, details string
 	details += dot + styleMuted.Render(bytesString(p.bytes.Load())) + dot + elapsed
 	return headline, details, fraction, known
 }
+
+// startDeleteProgress shows a live count of removed entries. When a previous
+// interactive info run recorded the snapshot's entry count, a bar estimates
+// progress against it.
+func startDeleteProgress(ctx context.Context, w io.Writer, disabled bool, id, path string, removed *atomic.Uint64) *live {
+	if disabled || !isTerminalWriter(w) {
+		return nil
+	}
+	estimate := loadEstimates()[path]
+	started := time.Now()
+	bar := newBar(progressBarWidth)
+	return startLive(ctx, w, false, func(now time.Time, _ int) liveFrame {
+		return deleteFrame(ctx, id, removed.Load(), estimate, bar, started, now)
+	})
+}
+
+func deleteFrame(ctx context.Context, id string, removed, estimate uint64, bar progressbar.Model, started, now time.Time) liveFrame {
+	headline := styleBold.Render("Deleting ") + styleMuted.Render(safeText(id))
+	elapsed := styleMuted.Render(stopwatch(now.Sub(started)))
+	if ctx.Err() != nil {
+		headline = styleBold.Render("Stopping")
+	}
+	if estimate == 0 {
+		return liveFrame{
+			content: spinnerFrame(started, now) + " " + headline + "\n  " +
+				styleMuted.Render(groupedCount(removed)+" entries removed") + dot + elapsed,
+			progress: tea.NewProgressBar(tea.ProgressBarIndeterminate, 0),
+		}
+	}
+	// The snapshot may have grown since it was measured; never claim done early.
+	fraction := min(float64(removed)/float64(estimate+1), 0.99)
+	return liveFrame{
+		content: spinnerFrame(started, now) + " " + headline + "\n  " +
+			barView(bar, fraction) + " " + percentText(fraction) + dot +
+			styleMuted.Render(groupedCount(removed)+" entries removed") + dot + elapsed,
+		progress: tea.NewProgressBar(tea.ProgressBarDefault, int(fraction*100)),
+	}
+}

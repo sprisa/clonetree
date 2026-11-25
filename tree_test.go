@@ -206,7 +206,7 @@ func TestClonePreservesModesTimesAndSymlinks(t *testing.T) {
 			t.Fatalf("symlink %s: %q, %v", name, got, err)
 		}
 	}
-	if err := deleteTree(root, "clone"); err != nil {
+	if err := deleteTree(context.Background(), root, "clone", nil); err != nil {
 		t.Fatalf("delete read-only directories: %v", err)
 	}
 }
@@ -247,7 +247,7 @@ func TestValidationAndSymlinkProtection(t *testing.T) {
 		if _, err := newTree(context.Background(), root, root, id, nil); err == nil {
 			t.Errorf("new accepted %q", id)
 		}
-		if err := deleteTree(root, id); err == nil {
+		if err := deleteTree(context.Background(), root, id, nil); err == nil {
 			t.Errorf("delete accepted %q", id)
 		}
 	}
@@ -258,14 +258,14 @@ func TestValidationAndSymlinkProtection(t *testing.T) {
 	if _, err := newTree(context.Background(), root, root, "linked", nil); err == nil {
 		t.Fatal("new accepted symlink destination")
 	}
-	if err := deleteTree(root, "linked"); err == nil {
+	if err := deleteTree(context.Background(), root, "linked", nil); err == nil {
 		t.Fatal("delete accepted symlink destination")
 	}
 	write(t, filepath.Join(root, "file.clonetree"), "keep file")
 	if _, err := newTree(context.Background(), root, root, "file", nil); err == nil {
 		t.Fatal("new accepted a regular-file destination")
 	}
-	if err := deleteTree(root, "file"); err == nil {
+	if err := deleteTree(context.Background(), root, "file", nil); err == nil {
 		t.Fatal("delete accepted a regular-file destination")
 	}
 	if read(t, filepath.Join(root, "file.clonetree")) != "keep file" {
