@@ -96,11 +96,32 @@ Beyond that, wall time gets worse as well. Opening child directories relative to
 their parents did not change these numbers; the contention is inside the
 metadata reads themselves.
 
-`--size-only` omits the APFS private-size queries behind `DISK USED` and `SAVED`.
+`--size-only` omits the disk-usage queries behind `DISK USED` and `SAVED`: APFS
+private size on macOS, and opening each file for `FIEMAP` on Linux.
 It still scans the files to calculate logical size.
 
 `list` (`ls`) reads only the snapshot directory itself and returns immediately,
 regardless of snapshot size.
+
+### Disk used on Linux
+
+XFS and Btrfs do not report a private size, and `du` counts shared blocks. On
+Linux, `DISK USED` opens each regular file and sums the extents `FIEMAP` does
+not flag as shared. Btrfs stores very small files inline with their metadata,
+and clones copy that data; FIEMAP reports such extents as a whole block, so
+they count only the file's bytes.
+
+Measured in the Ubuntu e2e container (kernel 7.2) on 1–3 GiB loop images: a
+project with 60,000 small files and a 100 MiB file, cloned, with 20 MiB of the
+large file rewritten in the clone. Warm caches.
+
+| Filesystem | DISK USED | `du` of the clone | `info` | `info --size-only` |
+| --- | ---: | ---: | ---: | ---: |
+| XFS | 20.0 MiB | 338 MB | 0.11s | 0.03s |
+| Btrfs | 20.8 MiB | 335 MB | 0.05s | 0.015s |
+
+Btrfs's extra 0.8 MiB is the small files' inline data. Opening every file
+costs three to four times the metadata-only scan; `--size-only` skips it.
 
 ### Deletion
 

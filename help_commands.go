@@ -115,7 +115,7 @@ var commandDocs = map[string]commandDoc{
 				{"FULL COPY", "What an ordinary copy would take (logical size)"},
 			}},
 			{title: "Good to know", bullets: []string{
-				"DISK USED comes from APFS and shows n/a on Linux. It leaves out each clone's file metadata.",
+				"DISK USED comes from APFS, or from unshared extents on XFS and Btrfs. It leaves out each clone's file metadata.",
 				"Snapshots are measured concurrently, and each row fills in as soon as it is done.",
 				"Progress percentages come from the previous run's entry counts, kept in your cache directory.",
 				projectNote,
