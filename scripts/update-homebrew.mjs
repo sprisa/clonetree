@@ -107,6 +107,9 @@ ${platform('Linux', 'x86_64')}
     assert_match version.to_s, shell_output("#{bin}/clonetree --version")
     system bin/"clonetree", "init"
     assert_match "*.clonetree/", (testpath/".gitignore").read
+    assert_path_exists bash_completion/"clonetree"
+    assert_path_exists zsh_completion/"_clonetree"
+    assert_path_exists fish_completion/"clonetree.fish"
   end
 end
 `;
